@@ -55,6 +55,6 @@ Public sign-up is disabled in demo mode. The demo database may be reset periodic
 ## About
 
 Built and maintained by **Sean Jericho V. Leoncio** (Industrial Engineering, UST — Cum Laude) as Systems Engineer at GEMMN Engineering Works.
-Company name and logo are used with the owner's knowledge for portfolio purposes; all sample data is invented.
+The company name and logo appear to show the real project this came from; all sample data is invented.
 
 *Seed data and Row Level Security policies in this repo are simplified for demonstration; the production system uses stricter per-role policies.*
