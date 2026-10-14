@@ -4,6 +4,7 @@ import { createClient } from '@/lib/supabase'
 import { fetchAll as fetchAllPages } from '@/lib/fetchAll'
 import { usePermissions } from '@/lib/permissions'
 import type { Expense } from '@/app/types/index'
+import GeneralLedgerTab from './GeneralLedgerTab'
 
 const C = {
   darkGreen: '#1a4d2e', midGreen: '#2d6a4f', accent: '#39b54a',
@@ -174,7 +175,7 @@ export default function ExpensesPage() {
   // ══════════════════════════════════════════════════════════════════════════
   // BANK LEDGER (Phase 1) — statements, deposits/withdrawals, outstanding checks
   // ══════════════════════════════════════════════════════════════════════════
-  const [tab, setTab] = useState<'overview'|'expenses'|'bank'|'pcf'>('overview')
+  const [tab, setTab] = useState<'overview'|'expenses'|'bank'|'pcf'|'ledger'>('overview')
   const [bankAccount, setBankAccount] = useState<any>(null)
   const [bankAccountForm, setBankAccountForm] = useState({ name: '', account_number: '', maintaining_balance: '' })
   const [statements, setStatements] = useState<any[]>([])
@@ -710,7 +711,7 @@ export default function ExpensesPage() {
     <div>
       {/* Tab Nav */}
       <div style={{ display: 'flex', gap: 6, marginBottom: 18 }}>
-        {[['overview','Overview'],['expenses','Overhead & Income'],['bank','Bank Ledger'],['pcf','Petty Cash Fund']].map(([key,label])=>(
+        {[['overview','Overview'],['expenses','Overhead & Income'],['bank','Bank Ledger'],['pcf','Petty Cash Fund'],['ledger','Accounting Ledger']].map(([key,label])=>(
           <button key={key} onClick={()=>setTab(key as any)} style={{
             padding: '9px 20px', fontSize: 11, fontWeight: 800, letterSpacing: 1, textTransform: 'uppercase',
             border: `1.5px solid ${tab===key?C.accent:C.lightGray}`, borderRadius: 8, cursor: 'pointer', fontFamily: 'inherit',
@@ -843,6 +844,8 @@ export default function ExpensesPage() {
           invoicesForLinking={invoicesForLinking} employeesForCA={employeesForCA}
         />
       )}
+
+      {tab === 'ledger' && <GeneralLedgerTab />}
 
       {tab === 'pcf' && (
         <PettyCashFundTab
