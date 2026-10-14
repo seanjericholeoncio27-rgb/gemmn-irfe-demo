@@ -210,6 +210,7 @@ export default function ExpensesPage() {
     setBankTxns(data || [])
   }, [supabase])
 
+  useEffect(() => { if (tab === 'overview') fetchBankAccount() }, [tab])
   useEffect(() => { if (tab === 'bank') { fetchBankAccount(); supabase.from('invoices').select('id,client,company_name,po_number,status').order('created_at',{ascending:false}).then(({data}:any)=>setInvoicesForLinking(data||[])); supabase.from('employees').select('id,name').order('name').then(({data}:any)=>setEmployeesForCA(data||[])) } }, [tab])
   useEffect(() => { if (bankAccount) { fetchStatements(bankAccount.id); fetchOutstandingChecks(bankAccount.id) } }, [bankAccount])
   useEffect(() => { if (currentStatementId) fetchBankTxns(currentStatementId) }, [currentStatementId])
@@ -442,6 +443,7 @@ export default function ExpensesPage() {
     setAllPcvNumbers((data||[]).map((r:any)=>r.pcv_number).filter(Boolean))
   }, [supabase])
 
+  useEffect(() => { if (tab==='overview') fetchPcfFund() }, [tab])
   useEffect(() => { if (tab==='pcf') { fetchPcfFund(); fetchPcfCategories(); fetchAllPcvNumbers() } }, [tab])
   useEffect(() => { if (pcfFund) fetchPcfPeriods(pcfFund.id) }, [pcfFund])
   useEffect(() => { if (currentPcfPeriodId) fetchPcfVouchers(currentPcfPeriodId) }, [currentPcfPeriodId])
