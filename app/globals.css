@@ -40,3 +40,29 @@ a {
     color-scheme: dark;
   }
 }
+
+/* ── Button motion: eased hover lift, cursor-following light, magnetic lean,
+   press-down. Applied at runtime by components/ButtonMotion to primary
+   (gradient) buttons. Uses the individual `translate`/`scale` properties so
+   it never fights a button's own inline transform. ── */
+.fx-btn {
+  overflow: hidden;
+  transition: translate 450ms cubic-bezier(.34, 1.56, .64, 1), scale 350ms cubic-bezier(.23, 1, .32, 1), box-shadow 350ms cubic-bezier(.23, 1, .32, 1), filter 350ms cubic-bezier(.23, 1, .32, 1);
+  will-change: translate, scale;
+}
+.fx-btn::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  border-radius: inherit;
+  background: radial-gradient(90px circle at var(--mx, 50%) var(--my, 50%), rgba(255, 255, 255, .32), transparent 70%);
+  opacity: 0;
+  transition: opacity 350ms cubic-bezier(.23, 1, .32, 1);
+}
+.fx-btn:hover:not(:disabled) { box-shadow: 0 6px 18px rgba(26, 77, 46, .28); filter: brightness(1.04); }
+.fx-btn:hover:not(:disabled)::after { opacity: 1; }
+.fx-btn:active:not(:disabled) { scale: .97; transition-duration: 90ms; }
+@media (prefers-reduced-motion: reduce) {
+  .fx-btn, .fx-btn::after { transition: none; }
+}

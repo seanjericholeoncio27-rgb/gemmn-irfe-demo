@@ -4,6 +4,7 @@ import { usePathname, useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase'
 import { usePermissions } from '@/lib/permissions'
 import type { Profile } from '@/app/types/index'
+import ButtonMotion from '@/components/ButtonMotion'
 
 const C = {
   darkGreen: '#1a4d2e', midGreen: '#2d6a4f', accent: '#39b54a',
@@ -371,6 +372,7 @@ export default function DashboardShell({ children, profile }: { children: React.
         </div>
         {/* Page Content */}
         <div style={{ padding: '26px 30px', flex: 1, zoom: `${zoomLevel}%` } as React.CSSProperties}>{children}</div>
+        <ButtonMotion />
         {/* Footer */}
         <div style={{ background: C.white, borderTop: `1px solid ${C.lightGray}`, padding: '10px 30px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <span style={{ fontSize: 10, color: C.gray }}>© 2024 GEMMN ENGINEERING WORKS · IRFE SYSTEM v2.0 · Guiguinto, Bulacan</span>
