@@ -58,3 +58,12 @@ Built and maintained by **Sean Jericho V. Leoncio** (Industrial Engineering, UST
 The company name and logo appear to show the real project this came from; all sample data is invented.
 
 *Seed data and Row Level Security policies in this repo are simplified for demonstration; the production system uses stricter per-role policies.*
+
+## Traceability (hash-chained audit trail)
+
+Every expense, bank transaction, PO payment, stock release and invoice collection records the document or record it
+came from and the project it belongs to. `supabase/05_traceability.sql` seals each event in an append-only SHA-256
+chain (`ledger_chain`); edits and deletions append Amendment/Deletion blocks instead of happening silently. In
+**Accounting → Accounting Ledger** you can open any entry's trace (what it came from, what followed it), run
+**Verify chain**, and see untraced entries flagged. `supabase/06_relink_accounting.sql` rebuilds the demo's
+accounting layer so everything reconciles to the peso.

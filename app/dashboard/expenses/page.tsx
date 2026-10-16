@@ -48,6 +48,7 @@ const BLANK = {
   amount: 0,
   payment_method: 'Cash',
   receipt: '',
+  po_number: '',
   status: 'Paid',
   equipment_loan_id: '',
 }
@@ -185,7 +186,10 @@ export default function ExpensesPage() {
   const [invoicesForLinking, setInvoicesForLinking] = useState<any[]>([])
   const [employeesForCA, setEmployeesForCA] = useState<any[]>([])
   const [showTxnModal, setShowTxnModal] = useState(false)
-  const [txnForm, setTxnForm] = useState<any>({ direction: 'Deposit', date: new Date().toISOString().slice(0,10), particulars: '', bank_channel: '', check_number: '', amount: '', category: 'Client Payment', invoice_id: '', employee_id: '' })
+  const [txnForm, setTxnForm] = useState<any>({ direction: 'Deposit', date: new Date().toISOString().slice(0,10), particulars: '', bank_channel: '', check_number: '', amount: '', category: 'Client Payment', invoice_id: '', employee_id: '', document_no: '', po_number: '', payroll_run_id: '' })
+  const [payrollRunsForLink, setPayrollRunsForLink] = useState<any[]>([])
+  const [projectsForLink, setProjectsForLink] = useState<{po_number:string,name:string}[]>([])
+  useEffect(() => { supabase.from('projects').select('po_number,name').not('po_number','is',null).order('po_number',{ascending:false}).then(({data}:any)=>setProjectsForLink((data||[]).filter((p:any)=>p.po_number))) }, [])
   const [showNewStatementModal, setShowNewStatementModal] = useState(false)
   const [newStatementForm, setNewStatementForm] = useState({ period_label: '', start_date: '', end_date: '', beginning_balance: '' })
   const [passbookInput, setPassbookInput] = useState('')
@@ -211,7 +215,7 @@ export default function ExpensesPage() {
   }, [supabase])
 
   useEffect(() => { if (tab === 'overview') fetchBankAccount() }, [tab])
-  useEffect(() => { if (tab === 'bank') { fetchBankAccount(); supabase.from('invoices').select('id,client,company_name,po_number,status').order('created_at',{ascending:false}).then(({data}:any)=>setInvoicesForLinking(data||[])); supabase.from('employees').select('id,name').order('name').then(({data}:any)=>setEmployeesForCA(data||[])) } }, [tab])
+  useEffect(() => { if (tab === 'bank') { fetchBankAccount(); supabase.from('invoices').select('id,client,company_name,po_number,status').order('created_at',{ascending:false}).then(({data}:any)=>setInvoicesForLinking(data||[])); supabase.from('employees').select('id,name').order('name').then(({data}:any)=>setEmployeesForCA(data||[])); supabase.from('payroll_runs').select('id,period_start,period_end').order('period_end',{ascending:false}).then(({data}:any)=>setPayrollRunsForLink(data||[])) } }, [tab])
   useEffect(() => { if (bankAccount) { fetchStatements(bankAccount.id); fetchOutstandingChecks(bankAccount.id) } }, [bankAccount])
   useEffect(() => { if (currentStatementId) fetchBankTxns(currentStatementId) }, [currentStatementId])
 
@@ -260,45 +264,71 @@ export default function ExpensesPage() {
     if (!currentStatement) return setError('Open a statement period first.')
     if (currentStatement.status === 'Closed') return setError('This period is closed — open a new one to add transactions.')
     if (!txnForm.amount || Number(txnForm.amount) <= 0) return setError('Enter a valid amount.')
-    if (txnForm.direction === 'Withdrawal' && txnForm.category === 'Cash Advance' && !txnForm.employee_id) return setError('Select which employee this cash advance is for.')
+    const isW = txnForm.direction === 'Withdrawal', cat = txnForm.category
+    const doc = (txnForm.document_no || '').trim()
+    // Traceability: every peso in or out must point at something that explains it.
+    if (isW && cat === 'Cash Advance' && !txnForm.employee_id) return setError('Select which employee this cash advance is for.')
+    if (!isW && cat === 'Client Payment' && !txnForm.invoice_id) return setError('Select the invoice this client payment settles.')
+    if (!isW && cat !== 'Client Payment' && !doc) return setError('Enter the bank memo / reference number for this deposit.')
+    if (isW && cat === 'Payroll' && !txnForm.payroll_run_id) return setError('Select the payroll run this withdrawal pays for.')
+    if (isW && cat !== 'Payroll' && cat !== 'Cash Advance' && !doc) return setError('Enter the receipt / invoice / document number that supports this withdrawal.')
     setSaving(true); setError('')
-    const { data: savedTxn, error } = await supabase.from('bank_transactions').insert({
-      id: `TXN-${Date.now()}`, bank_statement_id: currentStatement.id, bank_account_id: bankAccount.id,
+    const txnId = `TXN-${Date.now()}`
+    const po = txnForm.po_number || null
+    const isExpensePath = isW && cat !== 'PCF Replenishment' && cat !== 'Cash Advance'
+    const caId = `CA-BANK-${Date.now()}`
+
+    // Source this transaction traces back to
+    let source_type: string | null = null, source_id: string | null = null
+    if (!isW) { if (cat === 'Client Payment') { source_type = 'Invoice'; source_id = txnForm.invoice_id } else { source_type = 'Bank Memo'; source_id = doc } }
+    else if (cat === 'Cash Advance') { source_type = 'Cash Advance'; source_id = caId }
+    else if (cat === 'Payroll') { source_type = 'Payroll'; source_id = txnForm.payroll_run_id }
+    else { source_type = cat === 'PCF Replenishment' ? 'Bank Memo' : 'Supplier Receipt'; source_id = doc }
+
+    // Real withdrawals create their linked Accounting expense FIRST, so the
+    // bank transaction is sealed already pointing at it. PCF Replenishment is
+    // excluded (the PCF voucher lines are the real expense) and Cash Advance is
+    // a receivable, not a cost.
+    let expenseId: string | null = null
+    if (isExpensePath) {
+      const run = payrollRunsForLink.find((r:any) => r.id === txnForm.payroll_run_id)
+      expenseId = nextExpenseId(expenses)
+      const { error: expErr } = await supabase.from('expenses').insert({
+        id: expenseId, date: txnForm.date, category: BANK_TO_EXP_CAT[cat] || 'Miscellaneous',
+        description: txnForm.particulars || cat, amount: Number(txnForm.amount),
+        payment_method: txnForm.bank_channel?.toLowerCase() === 'cash' ? 'Cash' : 'Bank Transfer', status: 'Paid',
+        receipt: cat === 'Payroll' ? (run ? `PAYROLL ${run.period_start}–${run.period_end}` : 'PAYROLL') : doc,
+        po_number: po, source_type: cat === 'Payroll' ? 'Payroll' : 'Supplier Receipt', source_id: cat === 'Payroll' ? txnForm.payroll_run_id : doc,
+      })
+      if (expErr) { setError(expErr.message); setSaving(false); return }
+    }
+
+    const { error } = await supabase.from('bank_transactions').insert({
+      id: txnId, bank_statement_id: currentStatement.id, bank_account_id: bankAccount.id,
       date: txnForm.date, particulars: txnForm.particulars || null, bank_channel: txnForm.bank_channel || null,
       check_number: txnForm.check_number || null, amount: Number(txnForm.amount),
-      direction: txnForm.direction, category: txnForm.category, invoice_id: txnForm.invoice_id || null,
-      employee_id: txnForm.category === 'Cash Advance' ? txnForm.employee_id || null : null,
-    }).select().single()
-    if (error) { setError(error.message); setSaving(false); return }
+      direction: txnForm.direction, category: cat, invoice_id: txnForm.invoice_id || null,
+      employee_id: cat === 'Cash Advance' ? txnForm.employee_id || null : null,
+      expense_id: expenseId, po_number: po, source_type, source_id,
+    })
+    if (error) {
+      if (expenseId) await supabase.from('expenses').delete().eq('id', expenseId)
+      setError(error.message); setSaving(false); return
+    }
 
     // Cash Advance withdrawals feed Payroll's existing cash_advances system
-    // directly — that's where liquidation-via-payroll-deduction already
-    // lives, so this just creates the record it expects rather than
-    // reinventing it. It's a receivable, not a cost, so no Expense here.
-    if (txnForm.direction === 'Withdrawal' && txnForm.category === 'Cash Advance') {
+    // (liquidation by payroll deduction already lives there).
+    if (isW && cat === 'Cash Advance') {
       await supabase.from('cash_advances').insert({
-        id: `CA-BANK-${Date.now()}`, employee_id: txnForm.employee_id,
+        id: caId, employee_id: txnForm.employee_id,
         date_issued: txnForm.date, amount: Number(txnForm.amount), balance: Number(txnForm.amount),
         status: 'Open', notes: `Cash advance via Bank Ledger — ${txnForm.particulars || ''}`.trim(),
-        bank_transaction_id: savedTxn.id,
+        bank_transaction_id: txnId,
       })
     }
+    if (isExpensePath) await fetchExpenses()
 
-    // Every other real withdrawal auto-creates a linked Accounting expense.
-    // PCF Replenishment is deliberately excluded too — the PCF voucher lines
-    // are the real expense; this transfer would double-count them.
-    if (txnForm.direction === 'Withdrawal' && txnForm.category !== 'PCF Replenishment' && txnForm.category !== 'Cash Advance') {
-      const expenseId = nextExpenseId(expenses)
-      const { data: savedExpense } = await supabase.from('expenses').insert({
-        id: expenseId, date: txnForm.date, category: BANK_TO_EXP_CAT[txnForm.category] || 'Miscellaneous',
-        description: txnForm.particulars || txnForm.category, amount: Number(txnForm.amount),
-        payment_method: txnForm.bank_channel?.toLowerCase() === 'cash' ? 'Cash' : 'Bank Transfer', status: 'Paid',
-      }).select().single()
-      if (savedExpense) await supabase.from('bank_transactions').update({ expense_id: savedExpense.id }).eq('id', savedTxn.id)
-      await fetchExpenses()
-    }
-
-    setTxnForm({ direction:'Deposit', date:new Date().toISOString().slice(0,10), particulars:'', bank_channel:'', check_number:'', amount:'', category:'Client Payment', invoice_id:'', employee_id:'' })
+    setTxnForm({ direction:'Deposit', date:new Date().toISOString().slice(0,10), particulars:'', bank_channel:'', check_number:'', amount:'', category:'Client Payment', invoice_id:'', employee_id:'', document_no:'', po_number:'', payroll_run_id:'' })
     setShowTxnModal(false)
     await fetchBankTxns(currentStatement.id)
     setSaving(false)
@@ -398,7 +428,7 @@ export default function ExpensesPage() {
     await supabase.from('bank_transactions').insert({
       id: txnId, bank_statement_id: currentStatement.id, bank_account_id: bankAccount.id,
       date: new Date().toISOString().slice(0,10), particulars: chk.particulars, check_number: chk.check_number,
-      amount: chk.amount, direction: 'Withdrawal', category: 'Other',
+      amount: chk.amount, direction: 'Withdrawal', category: 'Other', source_type: 'Check', source_id: chk.id,
     })
     await supabase.from('outstanding_checks').update({ status: 'Cleared', cleared_bank_transaction_id: txnId }).eq('id', chk.id)
     await fetchOutstandingChecks(bankAccount.id); await fetchBankTxns(currentStatement.id)
@@ -516,6 +546,7 @@ export default function ExpensesPage() {
         id: nextExpenseId(expenses), date: voucherForm.date, category: pcfCategoryToExpCat(line.category),
         description: `${voucherForm.payee.trim()} — ${line.category.trim()} (PCV ${voucherForm.pcv_number || nextPcvNumber()})`,
         amount: Number(line.amount), payment_method: 'Cash', status: 'Paid',
+        receipt: voucherForm.pcv_number || nextPcvNumber(), source_type: 'Petty Cash Voucher', source_id: voucherId,
       }).select().single()
       if (savedLine && savedExpense) await supabase.from('petty_cash_voucher_lines').update({ expense_id: savedExpense.id }).eq('id', savedLine.id)
     }
@@ -546,6 +577,7 @@ export default function ExpensesPage() {
       id: txnId, bank_statement_id: currentStatement.id, bank_account_id: bankAccount.id,
       date: new Date().toISOString().slice(0,10), particulars: `PCF Replenishment — ${currentPcfPeriod.period_label}`,
       amount: currentPeriodSpent, direction: 'Withdrawal', category: 'PCF Replenishment',
+      source_type: 'Petty Cash', source_id: currentPcfPeriod.id,
     })
     await supabase.from('petty_cash_periods').update({ status: 'Closed', replenishment_bank_transaction_id: txnId }).eq('id', currentPcfPeriod.id)
     await fetchPcfPeriods(pcfFund.id); await fetchBankTxns(currentStatement.id)
@@ -612,10 +644,23 @@ export default function ExpensesPage() {
     setError('')
 
     const { equipment_loan_id, ...rest } = form
-    const payload = {
+    const payload: any = {
       ...rest,
       amount: Number(form.amount) || 0,
-      description: form.description.trim()
+      description: form.description.trim(),
+      po_number: form.po_number || null,
+    }
+    // Traceability: a new expense needs a supporting document number, which
+    // becomes its source record (PO payments, payroll and petty cash vouchers
+    // set their own source automatically).
+    if (!selected && !String(form.receipt || '').trim()) {
+      setError('Receipt / document no. is required so this expense can be traced back.')
+      setSaving(false)
+      return
+    }
+    if (String(form.receipt || '').trim() && !payload.source_id) {
+      payload.source_type = 'Supplier Receipt'
+      payload.source_id = String(form.receipt).trim()
     }
 
     if (!payload.description) {
@@ -843,7 +888,7 @@ export default function ExpensesPage() {
           showTxnModal={showTxnModal} setShowTxnModal={setShowTxnModal} txnForm={txnForm} setTxnForm={setTxnForm} addTransaction={addTransaction} deleteTransaction={deleteTransaction}
           passbookInput={passbookInput} setPassbookInput={setPassbookInput} passbookVariance={passbookVariance} closeStatement={closeStatement}
           outstandingChecks={outstandingChecks} showCheckModal={showCheckModal} setShowCheckModal={setShowCheckModal} checkForm={checkForm} setCheckForm={setCheckForm} addOutstandingCheck={addOutstandingCheck} clearCheck={clearCheck}
-          invoicesForLinking={invoicesForLinking} employeesForCA={employeesForCA}
+          invoicesForLinking={invoicesForLinking} employeesForCA={employeesForCA} payrollRunsForLink={payrollRunsForLink} projectsForLink={projectsForLink}
         />
       )}
 
@@ -889,7 +934,8 @@ export default function ExpensesPage() {
               <Field label="Description" value={form.description} onChange={f('description')} placeholder="e.g. Material purchase for PRJ-101" required />
             </div>
             <Field label="Payment Method" type="select" value={form.payment_method} onChange={f('payment_method')} options={['Cash', 'Bank Transfer', 'GCash', 'Maya', 'Check', 'Internal Transfer']} />
-            <Field label="Receipt No." value={form.receipt} onChange={f('receipt')} />
+            <Field label="Receipt / Document No. *" value={form.receipt} onChange={f('receipt')} />
+            <Field label="Project PO (optional)" type="select" value={form.po_number || ''} onChange={f('po_number')} options={projectsForLink.map(p=>({value:p.po_number,label:`${p.po_number} — ${p.name}`}))} />
             <div style={{ gridColumn: '1/-1' }}>
               <Field label="Status" type="select" value={form.status} onChange={f('status')} options={['Paid', 'Pending', 'Cancelled']} />
             </div>
@@ -960,7 +1006,7 @@ function BankLedgerTab(props: any) {
     passbookInput, setPassbookInput, passbookVariance, closeStatement,
     outstandingChecks, showCheckModal, setShowCheckModal, checkForm, setCheckForm, addOutstandingCheck, clearCheck,
     invoicesForLinking,
-    employeesForCA,
+    employeesForCA, payrollRunsForLink, projectsForLink,
   } = props
 
   if (!bankAccount) {
@@ -1131,10 +1177,19 @@ function BankLedgerTab(props: any) {
           <Field label="Particulars" value={txnForm.particulars} onChange={(v:string)=>setTxnForm((p:any)=>({...p,particulars:v}))} />
           <Field label="Category" type="select" value={txnForm.category} onChange={(v:string)=>setTxnForm((p:any)=>({...p,category:v}))} options={txnForm.direction==='Deposit'?DEPOSIT_CATS:WITHDRAWAL_CATS} />
           {txnForm.direction==='Deposit' && txnForm.category==='Client Payment' && (
-            <Field label="Link to Invoice (optional)" type="select" value={txnForm.invoice_id} onChange={(v:string)=>setTxnForm((p:any)=>({...p,invoice_id:v}))} options={invoicesForLinking.map((i:any)=>({value:i.id,label:`${i.id} — ${i.client||i.company_name}`}))} />
+            <Field label="Invoice this payment settles *" type="select" value={txnForm.invoice_id} onChange={(v:string)=>setTxnForm((p:any)=>({...p,invoice_id:v}))} options={invoicesForLinking.map((i:any)=>({value:i.id,label:`${i.id} — ${i.client||i.company_name}`}))} />
           )}
           {txnForm.direction==='Withdrawal' && txnForm.category==='Cash Advance' && (
             <Field label="Employee" type="select" value={txnForm.employee_id} onChange={(v:string)=>setTxnForm((p:any)=>({...p,employee_id:v}))} options={employeesForCA.map((e:any)=>({value:e.id,label:e.name}))} />
+          )}
+          {txnForm.direction==='Withdrawal' && txnForm.category==='Payroll' && (
+            <Field label="Payroll Run *" type="select" value={txnForm.payroll_run_id} onChange={(v:string)=>setTxnForm((p:any)=>({...p,payroll_run_id:v}))} options={payrollRunsForLink.map((r:any)=>({value:r.id,label:`${r.period_start} to ${r.period_end}`}))} />
+          )}
+          {((txnForm.direction==='Withdrawal' && txnForm.category!=='Payroll' && txnForm.category!=='Cash Advance') || (txnForm.direction==='Deposit' && txnForm.category!=='Client Payment')) && (
+            <Field label={txnForm.direction==='Deposit' ? 'Bank Memo / Reference No. *' : 'Receipt / Invoice / Document No. *'} value={txnForm.document_no} onChange={(v:string)=>setTxnForm((p:any)=>({...p,document_no:v}))} />
+          )}
+          {txnForm.direction==='Withdrawal' && txnForm.category!=='PCF Replenishment' && txnForm.category!=='Cash Advance' && (
+            <Field label="Project PO (optional)" type="select" value={txnForm.po_number} onChange={(v:string)=>setTxnForm((p:any)=>({...p,po_number:v}))} options={projectsForLink.map((p:any)=>({value:p.po_number,label:`${p.po_number} — ${p.name}`}))} />
           )}
           <Field label="Bank / Channel" value={txnForm.bank_channel} onChange={(v:string)=>setTxnForm((p:any)=>({...p,bank_channel:v}))} />
           <Field label="Check #" value={txnForm.check_number} onChange={(v:string)=>setTxnForm((p:any)=>({...p,check_number:v}))} />

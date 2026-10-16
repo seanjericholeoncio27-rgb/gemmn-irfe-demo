@@ -432,6 +432,7 @@ export default function InvoicesPage() {
                 date: payload.collection_date || new Date().toISOString().slice(0,10),
                 particulars: payload.client || payload.company_name, amount, direction: 'Deposit',
                 category: 'Client Payment', invoice_id: targetId,
+                po_number: (payload as any).po_number || null, source_type: 'Invoice', source_id: targetId,
               })
             }
           }

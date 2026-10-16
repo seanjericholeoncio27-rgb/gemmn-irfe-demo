@@ -689,15 +689,16 @@ export default function ProjectsPage(){
         // Draw from existing stock: a Release against the project, plus an
         // Internal Transfer expense so project costing reflects the true
         // material cost even though no new cash left the business today.
-        await supabase.from('material_releases').insert({
+        const { data: relRow } = await supabase.from('material_releases').insert({
           material_id: mat.id, material_name: mat.name, qty, unit: mat.unit,
           requestor: `Project ${po} (BOM fulfillment)`, po_number: po, bom_id: fulfillingRow.id,
           date: new Date().toISOString().slice(0,10), notes: `BOM: ${fulfillingRow.description}`,
-        })
+        }).select().single()
         const { data: exp } = await supabase.from('expenses').insert({
           date: new Date().toISOString().slice(0,10), category: 'Materials/BOM',
           description: `${mat.name} — ${qty} ${mat.unit} for PO ${po} (from existing stock)`,
           amount: qty * Number(mat.unit_cost), payment_method: 'Internal Transfer', status: 'Paid',
+          po_number: po, source_type: 'Material Release', source_id: relRow?.id ? String(relRow.id) : null, receipt: relRow?.id ? `REL-${relRow.id}` : null,
         }).select().single()
 
         const newQtyPurchased = Number(fulfillingRow.qty_purchased||0) + qty

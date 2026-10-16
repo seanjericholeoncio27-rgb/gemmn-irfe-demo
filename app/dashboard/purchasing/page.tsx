@@ -420,14 +420,16 @@ export default function PurchasingPage(){
     if (amount > remainingToPay + 0.0001) return setError(`Only ${fmt(remainingToPay)} remains to be paid on this PO.`)
     setError('')
     const expenseId = `EXP-${Date.now()}`
+    const payId = crypto.randomUUID()   // the supplier-payment record this expense traces back to
     const { error: e1 } = await supabase.from('expenses').insert({
       id: expenseId, date: new Date().toISOString().slice(0,10), category: 'Materials/BOM',
+      receipt: f.sales_invoice_number.trim(), po_number: order.po_number || null, source_type: 'PO Payment', source_id: payId,
       description: `${suppliers.find(s=>s.id===order.supplier_id)?.name||'Supplier'} — PO ${order.id} (Sales Inv# ${f.sales_invoice_number.trim()})`,
       amount, payment_method: f?.payment_method||'Cash', status:'Paid',
     })
     if (e1) return setError(e1.message)
     await supabase.from('purchase_order_invoices').insert({
-      purchase_order_id: order.id, invoice_number: null, sales_invoice_number: f.sales_invoice_number.trim(),
+      id: payId, purchase_order_id: order.id, invoice_number: null, sales_invoice_number: f.sales_invoice_number.trim(),
       amount, payment_method: f?.payment_method||'Cash', expense_id: expenseId,
     })
     const newAmountPaid = Number(order.amount_paid||0) + amount
@@ -447,6 +449,7 @@ export default function PurchasingPage(){
           date: new Date().toISOString().slice(0,10),
           particulars: `${suppliers.find(s=>s.id===order.supplier_id)?.name||'Supplier'} — PO ${order.id} (Sales Inv# ${f.sales_invoice_number.trim()})`,
           amount, direction: 'Withdrawal', category: 'Supplier Payment', expense_id: expenseId,
+          po_number: order.po_number || null, source_type: 'PO Payment', source_id: payId,
         })
       }
     }
