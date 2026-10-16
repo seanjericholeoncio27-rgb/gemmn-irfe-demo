@@ -69,7 +69,7 @@ function buildLines(d: { invoices: any[]; poInvoices: any[]; poSupplier: Record<
 
   // Expenses not already shown as PO payments. Unpaid ones sit in A/P until paid.
   d.expenses.filter(e => !payExpenseIds.has(e.id)).forEach(e => {
-    lines.push(...pair(e.date || '', e.id, e.description || e.category || 'Expense', Number(e.amount) || 0, `Expense: ${e.category || 'Miscellaneous'}`, e.status === 'Paid' ? 'Cash & Bank' : 'Accounts Payable', `expenses:${e.id}#r`, e.po_number || ''))
+    lines.push(...pair(e.date || '', e.id, e.description || e.category || 'Expense', Number(e.amount) || 0, `Expense: ${e.category || 'Miscellaneous'}`, e.payment_method === 'Internal Transfer' ? 'Inventory (Stock)' : e.status === 'Paid' ? 'Cash & Bank' : 'Accounts Payable', `expenses:${e.id}#r`, e.po_number || ''))
   })
 
   // Bank transactions not already represented above

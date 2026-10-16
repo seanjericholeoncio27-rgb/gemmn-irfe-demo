@@ -41,8 +41,8 @@ insert into quotation_items (quotation_id, description, qty, unit, price, kind, 
 -- 3. Attach quotations to their POs, assign Job Order numbers ------------------------
 update quotations set status='Approved', po_number='PO-2026-0108' where id='QT-2026-005';
 update quotations set job_order_number = case id
-  when 'QT-2026-013' then 'JO-260810-001' when 'QT-2026-005' then 'JO-260920-001'
-  when 'QT-2026-012' then 'JO-260921-001' when 'QT-2026-015' then 'JO-260929-001' end
+  when 'QT-2026-013' then '20260810001' when 'QT-2026-005' then '20260920001'
+  when 'QT-2026-012' then '20260921001' when 'QT-2026-015' then '20260929001' end
  where id in ('QT-2026-013','QT-2026-005','QT-2026-012','QT-2026-015');
 
 -- 4. Metro batch-1 materials bought on supplier credit (open payable) ----------------
@@ -57,7 +57,7 @@ insert into project_item_quantities (po_number, quotation_id, item_line_uid, des
 select q.po_number, q.id, i.line_uid, i.description, i.qty, i.qty
 from quotations q join quotation_items i on i.quotation_id=q.id and i.kind='item'
 where q.po_number in ('PO-2026-0107','PO-2026-0108')
-on conflict (po_number, item_line_uid) do nothing;
+  and not exists (select 1 from project_item_quantities x where x.po_number=q.po_number and x.item_line_uid=i.line_uid);
 
 with gen as (
   select q.po_number po, q.id qid, m.line_uid uid, m.description descr, coalesce(m.dimension,'') dim, m.qty qty, m.unit unit, m.price price,
