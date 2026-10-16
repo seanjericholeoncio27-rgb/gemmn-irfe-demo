@@ -291,11 +291,22 @@ begin
   return n;
 end $$;
 
+-- Security: the view must run with the CALLER's permissions (so row-level security on
+-- expenses / bank_transactions still applies), and nothing here is open to anonymous users.
+alter view ledger_untraced set (security_invoker = true);
+revoke all on ledger_untraced from public, anon;
+grant select on ledger_untraced to authenticated;
+
 revoke all on function ledger_rebuild() from public, anon, authenticated;
 revoke all on function ledger_append(text,text,text,numeric,text,jsonb,jsonb) from public, anon, authenticated;
 revoke all on function ledger_event(text,text) from public, anon, authenticated;
+revoke all on function ledger_trg() from public, anon, authenticated;
+revoke all on function ledger_snapshot(text,text,text) from public, anon;
+revoke all on function ledger_latest(text,text,text) from public, anon;
+revoke all on function verify_ledger_chain() from public, anon;
 grant execute on function verify_ledger_chain() to authenticated;
-grant select on ledger_untraced to authenticated;
+revoke all on ledger_chain from anon;
+grant select on ledger_chain to authenticated;
 
 -- Seal everything that already exists (only on first run)
 do $$ begin
