@@ -176,7 +176,10 @@ export default function ExpensesPage() {
   // ══════════════════════════════════════════════════════════════════════════
   // BANK LEDGER (Phase 1) — statements, deposits/withdrawals, outstanding checks
   // ══════════════════════════════════════════════════════════════════════════
-  const [tab, setTab] = useState<'overview'|'expenses'|'bank'|'pcf'|'ledger'>('overview')
+  const [tab, setTab] = useState<'overview'|'expenses'|'bank'|'pcf'|'ledger'>(() => {
+    const t = typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('tab') : null
+    return (['overview','expenses','bank','pcf','ledger'].includes(t || '') ? t : 'overview') as any
+  })
   const [bankAccount, setBankAccount] = useState<any>(null)
   const [bankAccountForm, setBankAccountForm] = useState({ name: '', account_number: '', maintaining_balance: '' })
   const [statements, setStatements] = useState<any[]>([])

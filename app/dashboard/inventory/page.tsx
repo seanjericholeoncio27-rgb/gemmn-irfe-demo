@@ -73,7 +73,7 @@ export default function InventoryPage(){
   const [selected,setSelected]=useState<InventoryItem|null>(null)
   const [form,setForm]=useState<any>(BLANK)
   const [error,setError]=useState('')
-  const [search,setSearch]=useState('')
+  const [search,setSearch]=useState(()=>typeof window!=='undefined'?(new URLSearchParams(window.location.search).get('q')||''):'')
   const [catFilter,setCatFilter]=useState('All')
   const [relCatFilter,setRelCatFilter]=useState('All')
   const PAGE_SIZE = 50

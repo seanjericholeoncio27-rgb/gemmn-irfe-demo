@@ -63,71 +63,56 @@ export default function DashboardShell({ children, profile }: { children: React.
   // to render a hit.
   const canSee = (moduleKey: string) => perms.fullAccess || perms.modules.includes(moduleKey)
 
+  // Search runs in the database (global_search): it looks at every record type and
+  // only returns rows from modules this role is allowed to open, so access rules are
+  // enforced server-side rather than trusted to the browser.
   useEffect(() => {
     const q = searchQuery.trim()
     if (q.length < 2 || perms.loading) { setSearchResults([]); return }
+    let cancelled = false
     const timer = setTimeout(async () => {
       setSearching(true)
-      const like = `%${q}%`
-      type Lookup = { type: string; href: string; label: (r: any) => string; sub: (r: any) => string }
-      const jobs: { lookup: Lookup; promise: any }[] = []
-
-      if (canSee('quotations')) jobs.push({
-        lookup: { type: 'Quotation', href: '/dashboard/quotations', label: r => r.id, sub: r => r.company_name || r.client },
-        promise: supabase.from('quotations').select('id, client, company_name').or(`id.ilike.${like},client.ilike.${like},company_name.ilike.${like}`).limit(5),
-      })
-      if (canSee('invoices')) jobs.push({
-        lookup: { type: 'Invoice', href: '/dashboard/invoices', label: r => r.id, sub: r => r.company_name || r.client },
-        promise: supabase.from('invoices').select('id, client, company_name').or(`id.ilike.${like},client.ilike.${like},company_name.ilike.${like}`).limit(5),
-      })
-      if (canSee('projects')) jobs.push({
-        lookup: { type: 'Project', href: '/dashboard/projects', label: r => r.name || r.id, sub: r => r.po_number ? `PO ${r.po_number}` : r.client },
-        promise: supabase.from('projects').select('id, name, client, po_number').or(`id.ilike.${like},name.ilike.${like},client.ilike.${like},po_number.ilike.${like}`).limit(5),
-      })
-      if (canSee('payroll')) jobs.push({
-        lookup: { type: 'Employee', href: '/dashboard/payroll', label: r => r.name, sub: r => r.id },
-        promise: supabase.from('employees').select('id, name').ilike('name', like).limit(5),
-      })
-      if (canSee('expenses')) jobs.push({
-        lookup: { type: 'Expense', href: '/dashboard/expenses', label: r => r.id, sub: r => r.description },
-        promise: supabase.from('expenses').select('id, description').or(`id.ilike.${like},description.ilike.${like}`).limit(5),
-      })
-      // Materials Registry — this is the table behind Inventory's main tab;
-      // previously missing from search entirely.
-      if (canSee('inventory')) jobs.push({
-        lookup: { type: 'Material', href: '/dashboard/inventory', label: r => r.name, sub: r => [r.id, r.supplier].filter(Boolean).join(' · ') },
-        promise: supabase.from('inventory').select('id, name, supplier').or(`id.ilike.${like},name.ilike.${like},supplier.ilike.${like}`).limit(5),
-      })
-      if (canSee('purchasing')) {
-        jobs.push({
-          lookup: { type: 'Material Request', href: '/dashboard/purchasing', label: r => r.material_name, sub: r => r.po_number ? `PO ${r.po_number} · ${r.status}` : r.status },
-          promise: supabase.from('material_requests').select('id, material_name, po_number, status').or(`id.ilike.${like},material_name.ilike.${like},po_number.ilike.${like}`).limit(5),
-        })
-        jobs.push({
-          lookup: { type: 'Purchase Order', href: '/dashboard/purchasing', label: r => r.id, sub: r => r.po_number ? `Client PO ${r.po_number} · ${r.status}` : r.status },
-          promise: supabase.from('purchase_orders').select('id, po_number, status').or(`id.ilike.${like},po_number.ilike.${like}`).limit(5),
-        })
-        jobs.push({
-          lookup: { type: 'Supplier', href: '/dashboard/purchasing', label: r => r.name, sub: () => 'Supplier' },
-          promise: supabase.from('suppliers').select('id, name').ilike('name', like).limit(5),
-        })
-      }
-      if (canSee('resources')) jobs.push({
-        lookup: { type: 'Equipment', href: '/dashboard/resources', label: r => r.name, sub: r => r.brand || r.status },
-        promise: supabase.from('equipment').select('id, name, brand, status').or(`id.ilike.${like},name.ilike.${like},brand.ilike.${like}`).limit(5),
-      })
-
-      const settled: { data: any[] | null }[] = await Promise.all(jobs.map(j => j.promise))
-      setSearchResults(
-        settled.flatMap(({ data }, i) => {
-          const { type, href, label, sub } = jobs[i].lookup
-          return (data || []).map((r: any) => ({ type, href, label: label(r), sub: sub(r) }))
-        })
-      )
+      const { data, error } = await supabase.rpc('global_search', { term: q, per_type: 4 })
+      if (cancelled) return
+      setSearchResults(error ? [] : (data || []).map((r: any) => ({
+        type: r.kind,
+        label: r.label,
+        sub: r.sub,
+        href: `${r.path}${r.path.includes('?') ? '&' : '?'}q=${encodeURIComponent(r.term_key || '')}`,
+      })))
       setSearching(false)
     }, 300)
-    return () => clearTimeout(timer)
-  }, [searchQuery, perms.loading, perms.fullAccess, perms.modules])
+    return () => { cancelled = true; clearTimeout(timer) }
+  }, [searchQuery, perms.loading, perms.role])
+
+  // After following a search hit (?q=…), scroll to the matching record on the page and flash it.
+  useEffect(() => {
+    const q = new URLSearchParams(window.location.search).get('q')?.trim().toLowerCase()
+    if (!q) return
+    let tries = 0, done = false
+    const timer = setInterval(() => {
+      tries++
+      const root = document.querySelector('main') || document.body
+      const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT)
+      let n: Node | null
+      while ((n = walker.nextNode())) {
+        if (!n.nodeValue || !n.nodeValue.toLowerCase().includes(q)) continue
+        const el = n.parentElement
+        if (!el || el.closest('input,textarea,select,script,style')) continue
+        const target = (el.closest('tr') || el.closest('[data-row]') || el) as HTMLElement
+        target.scrollIntoView({ behavior: 'smooth', block: 'center' })
+        const prev = target.style.cssText
+        target.style.transition = 'box-shadow .4s, background .4s'
+        target.style.boxShadow = `0 0 0 3px ${C.accent}`
+        target.style.background = `${C.accent}18`
+        setTimeout(() => { target.style.cssText = prev }, 2600)
+        done = true
+        break
+      }
+      if (done || tries > 24) clearInterval(timer)
+    }, 350)
+    return () => clearInterval(timer)
+  }, [pathname])
 
   // ── Notifications — computed live from current data, not a stored/dismissable
   // log. Simpler and more reliable than tracking read/unread state per user;
