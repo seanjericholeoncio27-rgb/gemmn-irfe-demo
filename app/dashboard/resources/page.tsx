@@ -1,5 +1,6 @@
 'use client'
 import { useEffect, useState, useCallback, useRef } from 'react'
+import { SkeletonPanel } from '@/components/Skeleton'
 import { createClient } from '@/lib/supabase'
 import { fetchAll as fetchAllPages } from '@/lib/fetchAll'
 import { usePermissions } from '@/lib/permissions'
@@ -291,7 +292,7 @@ export default function ResourcesPage(){
           </div>
         </div>
 
-        {loading?<div style={{textAlign:'center',padding:40,color:C.gray}}>Loading equipment…</div>
+        {loading?<SkeletonPanel cards={6} label="Loading equipment"/>
         :filtered.length===0?<div style={{textAlign:'center',padding:40,color:C.gray}}>No equipment found.</div>
         :<>
           <div style={{fontSize:11,color:C.gray,fontWeight:700,marginBottom:10}}>{`Showing ${(eqCurrentPage-1)*EQ_PAGE_SIZE+1}–${Math.min(eqCurrentPage*EQ_PAGE_SIZE,filtered.length)} of ${filtered.length}`}</div>

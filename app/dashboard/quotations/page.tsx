@@ -1,5 +1,6 @@
 'use client'
 import { useEffect, useState, useCallback, useRef } from 'react'
+import { SkeletonPanel } from '@/components/Skeleton'
 import { createClient } from '@/lib/supabase'
 import { fetchAll as fetchAllPages } from '@/lib/fetchAll'
 import { usePermissions } from '@/lib/permissions'
@@ -1299,7 +1300,7 @@ export default function QuotationsPage() {
             {filteredQuotations.length === 0 ? 'No quotations match.' : `Showing ${(currentPage - 1) * PAGE_SIZE + 1}–${Math.min(currentPage * PAGE_SIZE, filteredQuotations.length)} of ${filteredQuotations.length}`}
           </div>
         )}
-        {loading ? <div style={{ textAlign: 'center', padding: 40, color: C.gray }}>Loading…</div>
+        {loading ? <SkeletonPanel rows={10} cols={6} label="Loading quotations"/>
           : quotations.length === 0 ? <div style={{ textAlign: 'center', padding: 40, color: C.gray }}>No quotations yet.</div>
             : <>
             {(() => {

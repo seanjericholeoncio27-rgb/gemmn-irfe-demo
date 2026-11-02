@@ -1,5 +1,6 @@
 'use client'
 import { useEffect, useState, useCallback, Fragment } from 'react'
+import { SkeletonPanel } from '@/components/Skeleton'
 import { createClient } from '@/lib/supabase'
 import { fetchAll as fetchAllPages } from '@/lib/fetchAll'
 import { usePermissions } from '@/lib/permissions'
@@ -1877,7 +1878,7 @@ export default function PayrollPage(){
               {filteredRecords.length===0?'':`Showing ${(recordsCurrentPage-1)*PAGE_SIZE+1}–${Math.min(recordsCurrentPage*PAGE_SIZE, recordsSorted.length)} of ${recordsSorted.length}`}
             </div>
           )}
-          {loading?<div style={{textAlign:'center',padding:40,color:C.gray}}>Loading…</div>
+          {loading?<SkeletonPanel kpis={3} rows={9} cols={6} label="Loading payroll"/>
           :filteredRecords.length===0?<div style={{textAlign:'center',padding:40,color:C.gray}}>{payrollPeriodFilter?'No records for this period.':'No payroll records yet.'}</div>
           :<table style={{width:'100%',borderCollapse:'collapse',fontSize:11}}>
             <thead><tr style={{background:`linear-gradient(90deg,${C.darkGreen},${C.midGreen})`}}>
@@ -1990,7 +1991,7 @@ export default function PayrollPage(){
               {`Showing ${(caCurrentPage-1)*PAGE_SIZE+1}–${Math.min(caCurrentPage*PAGE_SIZE, caSorted.length)} of ${caSorted.length}`}
             </div>
           )}
-          {loading?<div style={{textAlign:'center',padding:40,color:C.gray}}>Loading…</div>
+          {loading?<SkeletonPanel kpis={3} rows={9} cols={6} label="Loading payroll"/>
           :filteredCA.length===0?<div style={{textAlign:'center',padding:40,color:C.gray}}>No cash advances {caStatusFilter==='all'?'recorded':caStatusFilter==='open'?'open':'closed'}.</div>
           :<table style={{width:'100%',borderCollapse:'collapse',fontSize:11}}>
             <thead><tr style={{background:`linear-gradient(90deg,${C.darkGreen},${C.midGreen})`}}>

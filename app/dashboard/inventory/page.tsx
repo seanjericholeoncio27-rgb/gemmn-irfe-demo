@@ -1,5 +1,6 @@
 'use client'
 import { useEffect, useState, useCallback } from 'react'
+import { SkeletonPanel } from '@/components/Skeleton'
 import { createClient } from '@/lib/supabase'
 import { fetchAll as fetchAllPages } from '@/lib/fetchAll'
 import { usePermissions } from '@/lib/permissions'
@@ -499,7 +500,7 @@ export default function InventoryPage(){
           </div>
         </div>
 
-        {loading?<div style={{textAlign:'center',padding:40,color:C.gray}}>Loading inventory…</div>
+        {loading?<SkeletonPanel rows={10} cols={6} label="Loading inventory"/>
         :filtered.length===0?<div style={{textAlign:'center',padding:40,color:C.gray}}>No materials found.</div>
         :<table style={{width:'100%',borderCollapse:'collapse',fontSize:12}}>
           <thead><tr style={{background:`linear-gradient(90deg,${C.darkGreen},${C.midGreen})`}}>

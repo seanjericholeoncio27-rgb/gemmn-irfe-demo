@@ -1,5 +1,6 @@
 'use client'
 import { useEffect, useState } from 'react'
+import { SkeletonPanel } from '@/components/Skeleton'
 import { createClient } from '@/lib/supabase'
 
 const C = {
@@ -119,7 +120,7 @@ export default function ProfilePage() {
   }
 
   if (loading) {
-    return <div style={{ padding: 60, textAlign: 'center', color: C.gray }}>Loading…</div>
+    return <SkeletonPanel rows={5} cols={2} label="Loading profile"/>
   }
   if (!profile) {
     return <div style={{ padding: 60, textAlign: 'center', color: C.gray }}>Could not load your profile. Try signing in again.</div>

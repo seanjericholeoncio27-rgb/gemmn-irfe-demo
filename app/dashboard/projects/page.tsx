@@ -1,5 +1,6 @@
 'use client'
 import { useEffect, useState, useCallback } from 'react'
+import { SkeletonPanel } from '@/components/Skeleton'
 import { createClient } from '@/lib/supabase'
 import { fetchAll as fetchAllPages } from '@/lib/fetchAll'
 import { usePermissions } from '@/lib/permissions'
@@ -1040,7 +1041,7 @@ export default function ProjectsPage(){
       )}
 
       {/* PROJECT TILE GRID */}
-      {viewMode==='monitor' ? monitorUI : loading ? <div style={{textAlign:'center',padding:40, color: C.gray}}>Syncing GEMMN Cloud...</div> : (
+      {viewMode==='monitor' ? monitorUI : loading ? <SkeletonPanel kpis={4} cards={6} label="Loading projects"/> : (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(340px, 1fr))', gap: 20 }}>
           {paged.map((p:any) => {
             const prog = computeProgress(p, quotations, eventsFor(p.po_number))

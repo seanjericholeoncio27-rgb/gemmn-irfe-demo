@@ -1,5 +1,6 @@
 'use client'
 import { useEffect, useState, useCallback, useRef } from 'react'
+import { SkeletonPanel } from '@/components/Skeleton'
 import { createClient } from '@/lib/supabase'
 import { fetchAll as fetchAllPages } from '@/lib/fetchAll'
 import { usePermissions } from '@/lib/permissions'
@@ -795,7 +796,7 @@ export default function ExpensesPage() {
         <SectionHeader title="Overhead Expenses" action={canEdit ? '+ Add Expense' : ''} onAction={openNew} secondaryAction="📋 Templates" onSecondaryAction={() => setShowTemplatesModal(true)} />
 
         {loading ? (
-          <div style={{ textAlign: 'center', padding: 40, color: C.gray }}>Loading expenses…</div>
+          <SkeletonPanel rows={8} cols={5} label="Loading expenses"/>
         ) : (
           <>
           <div style={{ fontSize: 11, color: C.gray, fontWeight: 700, marginBottom: 10 }}>

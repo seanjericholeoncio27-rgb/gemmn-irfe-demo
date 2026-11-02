@@ -1,5 +1,6 @@
 'use client'
 import { useEffect, useState, useCallback } from 'react'
+import { SkeletonPanel } from '@/components/Skeleton'
 import { createClient } from '@/lib/supabase'
 import { MODULES } from '@/lib/permissions'
 
@@ -249,7 +250,7 @@ export default function UserAccessPage() {
                 + Add New User
               </button>
             </div>
-            {loading ? <div style={{ textAlign: 'center', padding: 40, color: C.gray }}>Loading…</div>
+            {loading ? <SkeletonPanel rows={6} cols={4} label="Loading access"/>
               : users.length === 0 ? <div style={{ textAlign: 'center', padding: 40, color: C.gray }}>No users found.</div>
                 : <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
                   <thead><tr style={{ background: `linear-gradient(90deg,${C.darkGreen},${C.midGreen})` }}>

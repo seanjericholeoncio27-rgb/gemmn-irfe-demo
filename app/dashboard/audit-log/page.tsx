@@ -1,5 +1,6 @@
 'use client'
 import { useEffect, useState, useCallback, Fragment } from 'react'
+import { SkeletonPanel } from '@/components/Skeleton'
 import { createClient } from '@/lib/supabase'
 
 const C = {
@@ -114,7 +115,7 @@ export default function AuditLogPage() {
       {!error && (
         <div style={{ background: C.white, borderRadius: 12, boxShadow: '0 2px 16px rgba(0,0,0,0.07)', overflow: 'hidden' }}>
           {loading ? (
-            <div style={{ padding: 50, textAlign: 'center', color: C.gray }}>Loading…</div>
+            <SkeletonPanel rows={10} cols={5} label="Loading audit log"/>
           ) : logs.length === 0 ? (
             <div style={{ padding: 50, textAlign: 'center', color: C.gray }}>No matching activity found.</div>
           ) : (

@@ -1,5 +1,6 @@
 'use client'
 import { useEffect, useState, useCallback, useRef } from 'react'
+import { SkeletonPanel } from '@/components/Skeleton'
 import { createClient } from '@/lib/supabase'
 import { fetchAll as fetchAllPages } from '@/lib/fetchAll'
 
@@ -606,10 +607,7 @@ export default function DashboardPage() {
       </div>
 
       {loading ? (
-        <div style={{ background: C.white, borderRadius: 12, padding: 60, textAlign: 'center', boxShadow: '0 2px 16px rgba(0,0,0,0.07)' }}>
-          <div style={{ fontSize: 32, marginBottom: 12 }}>⏳</div>
-          <div style={{ fontSize: 13, color: C.gray, fontWeight: 700 }}>Loading dashboard data…</div>
-        </div>
+        <SkeletonPanel kpis={4} rows={6} cols={4} label="Loading dashboard"/>
       ) : (
         <>
           {/* Cash Position — real-time, not affected by the date range above */}

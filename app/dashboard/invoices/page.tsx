@@ -1,5 +1,6 @@
 'use client'
 import { useEffect, useState, useCallback, useRef } from 'react'
+import { SkeletonPanel } from '@/components/Skeleton'
 import { createClient } from '@/lib/supabase'
 import { fetchAll as fetchAllPages } from '@/lib/fetchAll'
 import { usePermissions } from '@/lib/permissions'
@@ -533,7 +534,7 @@ export default function InvoicesPage() {
           </div>
         </div>
 
-        {loading ? <div style={{ textAlign: 'center', padding: 40, color: C.gray }}>Loading invoices…</div>
+        {loading ? <SkeletonPanel kpis={4} rows={9} cols={6} label="Loading invoices"/>
           : invoices.length === 0 ? <div style={{ textAlign: 'center', padding: 40, color: C.gray }}>No invoices yet.</div>
             : <>
             {(() => {
