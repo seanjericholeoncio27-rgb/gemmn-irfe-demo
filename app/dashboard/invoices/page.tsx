@@ -34,11 +34,7 @@ const BLANK_ITEM: ItemRow = { kind: 'item', description: '', qty: 1, unit: '', p
 const BLANK_MATERIAL: ItemRow = { kind: 'material', description: '', dimension: '', show_on_export: false, qty: '', unit: '', price: '' }
 
 function calcTotals(sum: number, vat_mode: string) {
-  if (vat_mode === 'included') {
-    const vatable = sum / (1 + VAT_RATE)
-    const vat = sum - vatable
-    return { vatable, vat, grand: sum }
-  }
+  // 'included' (VAT inc) = the entered price is the vatable amount and 12% is added on top, same as 'excluded'.
   if (vat_mode === 'exempt') return { vatable: sum, vat: 0, grand: sum }
   const vat = sum * VAT_RATE
   return { vatable: sum, vat, grand: sum + vat }
@@ -761,7 +757,7 @@ export default function InvoicesPage() {
                   <label style={{ fontSize: 10, fontWeight: 800, letterSpacing: 1.5, color: C.gray, textTransform: 'uppercase', display: 'block', marginBottom: 5 }}>VAT</label>
                   <select value={form.vat_mode} onChange={e => f('vat_mode')(e.target.value)} style={{ width: '100%', padding: '9px 12px', border: `1.5px solid ${C.lightGray}`, borderRadius: 6, fontSize: 13, fontFamily: 'inherit', boxSizing: 'border-box' }}>
                     <option value="excluded">VAT Excluded (add 12% on top)</option>
-                    <option value="included">VAT Included (already in price)</option>
+                    <option value="included">VAT Inc (12% added on top of price)</option>
                     <option value="exempt">VAT Exempt</option>
                   </select>
                 </div>

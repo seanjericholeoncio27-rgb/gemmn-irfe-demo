@@ -854,7 +854,7 @@ export default function ExpensesPage() {
             </tr></thead>
             <tbody>{pagedPaidInvoices.map((inv, i) => {
               const sub = (inv.invoice_items || []).filter((it: any) => it.kind === 'item').reduce((s: number, it: any) => s + (Number(it.qty) || 0) * (Number(it.price) || 0), 0)
-              const total = inv.vat_mode === 'exempt' || inv.vat_mode === 'included' ? sub : sub * 1.12
+              const total = inv.vat_mode === 'exempt' ? sub : sub * 1.12
               return (
                 <tr key={inv.id} style={{ background: i % 2 === 0 ? C.white : '#f9fbf9', borderBottom: `1px solid ${C.lightGray}` }}>
                   <td style={{ padding: '8px 12px', fontWeight: 800, color: C.darkGreen }}>{inv.id}</td>

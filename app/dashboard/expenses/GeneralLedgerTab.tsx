@@ -28,7 +28,7 @@ const groupOf = (account: string): Group => GROUP_OF[account] || (account.starts
 
 const invoiceGrand = (inv: any) => {
   const sub = (inv.invoice_items || []).filter((it: any) => it.kind === 'item').reduce((s: number, it: any) => s + (Number(it.qty) || 0) * (Number(it.price) || 0), 0)
-  return inv.vat_mode === 'exempt' || inv.vat_mode === 'included' ? sub : sub * 1.12
+  return inv.vat_mode === 'exempt' ? sub : sub * 1.12
 }
 
 function pair(date: string, ref: string, particulars: string, amount: number, debitAcct: string, creditAcct: string, key = '', po = ''): Line[] {

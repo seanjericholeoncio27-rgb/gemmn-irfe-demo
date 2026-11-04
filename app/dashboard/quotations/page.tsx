@@ -67,11 +67,7 @@ const BLANK_ITEM: ItemRow = { kind: 'item', description: '', qty: 1, unit: '', p
 const BLANK_MATERIAL: ItemRow = { kind: 'material', description: '', dimension: '', show_on_export: false, qty: '', unit: '', price: '' }
 
 function calcTotals(sum: number, vat_mode: string) {
-  if (vat_mode === 'included') {
-    const vatable = sum / (1 + VAT_RATE)
-    const vat = sum - vatable
-    return { vatable, vat, grand: sum }
-  }
+  // 'included' (VAT inc) = the entered price is the vatable amount and 12% is added on top, same as 'excluded'.
   if (vat_mode === 'exempt') return { vatable: sum, vat: 0, grand: sum }
   const vat = sum * VAT_RATE
   return { vatable: sum, vat, grand: sum + vat }
@@ -118,19 +114,26 @@ const BLANK_COST_BREAKDOWN: CostBreakdown = {
   contingencyPct: 10, markupPct: 10, installation: 0, mobilization: 0, leewayPct: 10,
 }
 
-// materialCost is passed in — computed from the item's own material sub-rows
-function calcCostBuilder(cb: CostBreakdown, materialCost: number, commissionPct: number | string = 0) {
+// materialCost is passed in — computed from the item's own material sub-rows.
+// Installation and Mobilization/Delivery are ONE-TIME charges for the whole line,
+// not per piece: line total = unit cost × qty + installation + mobilization.
+// Rows only store qty × price, so the one-time charge is spread across qty
+// (lump ÷ qty) into the unit price — qty × price then lands on the right total
+// (e.g. 100 × 10 pcs + 50 delivery = 1,050, not (100 + 50) × 10 = 1,500).
+function calcCostBuilder(cb: CostBreakdown, materialCost: number, commissionPct: number | string = 0, qty: number | string = 1) {
   const n = (v: any) => Number(v) || 0
   const materialWithMarkup = materialCost * (1 + n(cb.materialMarkupPct) / 100)
   const laborCost = cb.labor.reduce((s, l) => s + n(l.hours) * n(l.rate), 0)
   const beforeContingency = materialWithMarkup + n(cb.treatmentCost) + laborCost
   const afterContingency = beforeContingency * (1 + n(cb.contingencyPct) / 100)
   const afterMarkup = afterContingency * (1 + n(cb.markupPct) / 100)
-  const totalPrice = afterMarkup + n(cb.installation) + n(cb.mobilization)
+  const q = n(qty) > 0 ? n(qty) : 1
+  const oneTimeCharges = n(cb.installation) + n(cb.mobilization)
+  const totalPrice = afterMarkup + oneTimeCharges / q
   // Sales commission is funded out of the price: it stacks on top of the leeway %
   const leewayAmount = totalPrice * (n(cb.leewayPct) + n(commissionPct)) / 100
   const unitPrice = totalPrice + leewayAmount
-  return { materialCost, materialWithMarkup, laborCost, beforeContingency, afterContingency, afterMarkup, totalPrice, leewayAmount, unitPrice }
+  return { materialCost, materialWithMarkup, laborCost, beforeContingency, afterContingency, afterMarkup, oneTimeCharges, totalPrice, leewayAmount, unitPrice }
 }
 
 // Finds the material sub-rows that "belong" to an item — every consecutive
@@ -1156,8 +1159,10 @@ export default function QuotationsPage() {
       const next = prev.map((it, idx) => {
         if (it.kind === 'item' && it.cost_breakdown && !it.cost_breakdown.manualOverride) {
           const matCost = materialCostForItem(prev, idx)
-          const { unitPrice } = calcCostBuilder(it.cost_breakdown, matCost, form.commission_pct)
-          const rounded = Math.round(unitPrice * 100) / 100
+          const { unitPrice, oneTimeCharges } = calcCostBuilder(it.cost_breakdown, matCost, form.commission_pct, it.qty)
+          // 4 dp when a one-time charge is spread over qty, so qty × price keeps the cents exact
+          const dp = oneTimeCharges > 0 ? 10000 : 100
+          const rounded = Math.round(unitPrice * dp) / dp
           if (Number(it.price) !== rounded) { changed = true; return { ...it, price: rounded } }
         }
         return it
@@ -1706,7 +1711,7 @@ export default function QuotationsPage() {
                   <label style={{ fontSize: 10, fontWeight: 800, letterSpacing: 1.5, color: C.gray, textTransform: 'uppercase', display: 'block', marginBottom: 5 }}>VAT</label>
                   <select value={form.vat_mode} onChange={e => f('vat_mode')(e.target.value)} style={{ width: '100%', padding: '9px 12px', border: `1.5px solid ${C.lightGray}`, borderRadius: 6, fontSize: 13, fontFamily: 'inherit', boxSizing: 'border-box' }}>
                     <option value="excluded">VAT Excluded (add 12% on top)</option>
-                    <option value="included">VAT Included (already in price)</option>
+                    <option value="included">VAT Inc (12% added on top of price)</option>
                     <option value="exempt">VAT Exempt</option>
                   </select>
                 </div>
@@ -1815,7 +1820,7 @@ export default function QuotationsPage() {
                   const cbOpen = openBuilderIdx === idx
                   const itemMaterials = materialsForItem(items, idx)
                   const itemMaterialCost = materialCostForItem(items, idx)
-                  const cbResult = hasCB ? calcCostBuilder(item.cost_breakdown, itemMaterialCost, form.commission_pct) : null
+                  const cbResult = hasCB ? calcCostBuilder(item.cost_breakdown, itemMaterialCost, form.commission_pct, item.qty) : null
                   const margin = cbResult && Number(item.price) > 0 ? ((Number(item.price) - cbResult.totalPrice) / Number(item.price) * 100) : null
                   return (
                     <div key={idx} style={{ marginBottom: 10, background: '#fff', border: `1.5px solid ${C.lightGray}`, borderRadius: 8, padding: 10 }}>
@@ -1944,9 +1949,9 @@ export default function QuotationsPage() {
                               <input type="number" value={item.cost_breakdown.contingencyPct} onFocus={e => e.target.select()} onChange={e => updateCB(idx, { contingencyPct: e.target.value })} onBlur={e => { if (!e.target.value.trim()) updateCB(idx, { contingencyPct: '0' }) }} style={{ width: '100%', padding: '6px 8px', border: `1.5px solid ${C.lightGray}`, borderRadius: 6, fontSize: 11, boxSizing: 'border-box' }} /></div>
                             <div><label style={{ fontSize: 9, color: C.gray, fontWeight: 700 }}>Mark-up %</label>
                               <input type="number" value={item.cost_breakdown.markupPct} onFocus={e => e.target.select()} onChange={e => updateCB(idx, { markupPct: e.target.value })} onBlur={e => { if (!e.target.value.trim()) updateCB(idx, { markupPct: '0' }) }} style={{ width: '100%', padding: '6px 8px', border: `1.5px solid ${C.lightGray}`, borderRadius: 6, fontSize: 11, boxSizing: 'border-box' }} /></div>
-                            <div><label style={{ fontSize: 9, color: C.gray, fontWeight: 700 }}>Installation (₱)</label>
+                            <div><label style={{ fontSize: 9, color: C.gray, fontWeight: 700 }}>Installation (₱, one-time per line)</label>
                               <input type="number" value={item.cost_breakdown.installation} onFocus={e => e.target.select()} onChange={e => updateCB(idx, { installation: e.target.value })} onBlur={e => { if (!e.target.value.trim()) updateCB(idx, { installation: '0' }) }} style={{ width: '100%', padding: '6px 8px', border: `1.5px solid ${C.lightGray}`, borderRadius: 6, fontSize: 11, boxSizing: 'border-box' }} /></div>
-                            <div><label style={{ fontSize: 9, color: C.gray, fontWeight: 700 }}>Mobilization (₱)</label>
+                            <div><label style={{ fontSize: 9, color: C.gray, fontWeight: 700 }}>Mobilization / Delivery (₱, one-time per line)</label>
                               <input type="number" value={item.cost_breakdown.mobilization} onFocus={e => e.target.select()} onChange={e => updateCB(idx, { mobilization: e.target.value })} onBlur={e => { if (!e.target.value.trim()) updateCB(idx, { mobilization: '0' }) }} style={{ width: '100%', padding: '6px 8px', border: `1.5px solid ${C.lightGray}`, borderRadius: 6, fontSize: 11, boxSizing: 'border-box' }} /></div>
                           </div>
 
@@ -1959,7 +1964,8 @@ export default function QuotationsPage() {
                             <div style={{ background: `${C.purple}08`, border: `1px solid ${C.purple}33`, borderRadius: 8, padding: '10px 12px', marginBottom: 10, fontSize: 11 }}>
                               <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Material Cost (+{item.cost_breakdown.materialMarkupPct}%)</span><b>{fmt(cbResult.materialWithMarkup)}</b></div>
                               <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Labor Cost</span><b>{fmt(cbResult.laborCost)}</b></div>
-                              <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>After Contingency + Mark-up</span><b>{fmt(cbResult.afterMarkup)}</b></div>
+                              <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>After Contingency + Mark-up (per unit)</span><b>{fmt(cbResult.afterMarkup)}</b></div>
+                              {cbResult.oneTimeCharges > 0 && <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>+ Installation / Delivery (one-time, ÷ {Number(item.qty) > 0 ? Number(item.qty) : 1} qty = {fmt(cbResult.oneTimeCharges / (Number(item.qty) > 0 ? Number(item.qty) : 1))} each)</span><b>{fmt(cbResult.oneTimeCharges)}</b></div>}
                               <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: `1px solid ${C.purple}33`, paddingTop: 4, marginTop: 4 }}><span>Total Price (true cost)</span><b>{fmt(cbResult.totalPrice)}</b></div>
                               <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>+ Leeway ({item.cost_breakdown.leewayPct}%{Number(form.commission_pct) > 0 ? ` + ${form.commission_pct}% commission` : ''})</span><b>{fmt(cbResult.leewayAmount)}</b></div>
                               <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 900, color: C.purple, fontSize: 13, marginTop: 4 }}><span>{isOverridden ? 'Computed Price (not applied)' : 'Unit Price (auto-applied above)'}</span><span>{fmt(cbResult.unitPrice)}</span></div>
@@ -2157,7 +2163,7 @@ export default function QuotationsPage() {
                   <select value={invForm.vat_mode} onChange={e => setInvForm((p: any) => ({ ...p, vat_mode: e.target.value }))}
                     style={{ width: '100%', padding: '9px 12px', border: `1.5px solid ${C.lightGray}`, borderRadius: 6, fontSize: 13, fontFamily: 'inherit', boxSizing: 'border-box' }}>
                     <option value="excluded">VAT Excluded (add 12%)</option>
-                    <option value="included">VAT Included</option>
+                    <option value="included">VAT Inc (add 12%)</option>
                     <option value="exempt">VAT Exempt</option>
                   </select>
                 </div>
