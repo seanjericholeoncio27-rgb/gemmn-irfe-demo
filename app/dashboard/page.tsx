@@ -22,6 +22,7 @@ const fmt = (n: number) =>
 const VAT_RATE = 0.12
 // Mirrors InvoicesPage/QuotationsPage's calcTotals(sum, vat_mode).
 function grandTotal(sum: number, vat_mode: string | null | undefined) {
+  if (vat_mode === 'included') return sum
   if (vat_mode === 'exempt') return sum
   return sum * (1 + VAT_RATE) // default 'excluded'
 }
@@ -518,7 +519,7 @@ export default function DashboardPage() {
       .reduce((s: number, i: any) => s + (Number(i.qty) || 0) * (Number(i.price) || 0), 0)
     const discountAmount = itemsTotal * (Number(q.discount_pct) || 0) / 100
     const sum = itemsTotal - discountAmount
-    if (q.vat_mode === 'exempt') return sum
+    if (q.vat_mode === 'included' || q.vat_mode === 'exempt') return sum
     return sum * (1 + QUOTATION_VAT_RATE) // default 'excluded'
   }
   const quotationPipeline = currentQuotations

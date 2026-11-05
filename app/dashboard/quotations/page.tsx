@@ -67,7 +67,11 @@ const BLANK_ITEM: ItemRow = { kind: 'item', description: '', qty: 1, unit: '', p
 const BLANK_MATERIAL: ItemRow = { kind: 'material', description: '', dimension: '', show_on_export: false, qty: '', unit: '', price: '' }
 
 function calcTotals(sum: number, vat_mode: string) {
-  // 'included' (VAT inc) = the entered price is the vatable amount and 12% is added on top, same as 'excluded'.
+  if (vat_mode === 'included') {
+    const vatable = sum / (1 + VAT_RATE)
+    const vat = sum - vatable
+    return { vatable, vat, grand: sum }
+  }
   if (vat_mode === 'exempt') return { vatable: sum, vat: 0, grand: sum }
   const vat = sum * VAT_RATE
   return { vatable: sum, vat, grand: sum + vat }
@@ -1160,9 +1164,11 @@ export default function QuotationsPage() {
         if (it.kind === 'item' && it.cost_breakdown && !it.cost_breakdown.manualOverride) {
           const matCost = materialCostForItem(prev, idx)
           const { unitPrice, oneTimeCharges } = calcCostBuilder(it.cost_breakdown, matCost, form.commission_pct, it.qty)
+          // VAT Inc: the Cost Builder price is the vatable base; the line carries the VAT-inclusive price (base × 1.12)
+          const linePrice = form.vat_mode === 'included' ? unitPrice * (1 + VAT_RATE) : unitPrice
           // 4 dp when a one-time charge is spread over qty, so qty × price keeps the cents exact
           const dp = oneTimeCharges > 0 ? 10000 : 100
-          const rounded = Math.round(unitPrice * dp) / dp
+          const rounded = Math.round(linePrice * dp) / dp
           if (Number(it.price) !== rounded) { changed = true; return { ...it, price: rounded } }
         }
         return it
@@ -1170,7 +1176,7 @@ export default function QuotationsPage() {
       return changed ? next : prev
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [items, form.commission_pct, priceSyncLocked])
+  }, [items, form.commission_pct, form.vat_mode, priceSyncLocked])
 
   const saveAsTemplate = async (idx: number) => {
     const it = items[idx]
@@ -1711,7 +1717,7 @@ export default function QuotationsPage() {
                   <label style={{ fontSize: 10, fontWeight: 800, letterSpacing: 1.5, color: C.gray, textTransform: 'uppercase', display: 'block', marginBottom: 5 }}>VAT</label>
                   <select value={form.vat_mode} onChange={e => f('vat_mode')(e.target.value)} style={{ width: '100%', padding: '9px 12px', border: `1.5px solid ${C.lightGray}`, borderRadius: 6, fontSize: 13, fontFamily: 'inherit', boxSizing: 'border-box' }}>
                     <option value="excluded">VAT Excluded (add 12% on top)</option>
-                    <option value="included">VAT Inc (12% added on top of price)</option>
+                    <option value="included">VAT Inc (line prices already include 12%)</option>
                     <option value="exempt">VAT Exempt</option>
                   </select>
                 </div>
@@ -1821,7 +1827,8 @@ export default function QuotationsPage() {
                   const itemMaterials = materialsForItem(items, idx)
                   const itemMaterialCost = materialCostForItem(items, idx)
                   const cbResult = hasCB ? calcCostBuilder(item.cost_breakdown, itemMaterialCost, form.commission_pct, item.qty) : null
-                  const margin = cbResult && Number(item.price) > 0 ? ((Number(item.price) - cbResult.totalPrice) / Number(item.price) * 100) : null
+                  const priceExVat = form.vat_mode === 'included' ? Number(item.price) / (1 + VAT_RATE) : Number(item.price)
+                  const margin = cbResult && priceExVat > 0 ? ((priceExVat - cbResult.totalPrice) / priceExVat * 100) : null
                   return (
                     <div key={idx} style={{ marginBottom: 10, background: '#fff', border: `1.5px solid ${C.lightGray}`, borderRadius: 8, padding: 10 }}>
                       <div style={{ display: 'grid', gridTemplateColumns: '24px 3fr 1fr 1fr 1.5fr auto auto auto', gap: 8, alignItems: 'center' }}>
@@ -1969,6 +1976,7 @@ export default function QuotationsPage() {
                               <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: `1px solid ${C.purple}33`, paddingTop: 4, marginTop: 4 }}><span>Total Price (true cost)</span><b>{fmt(cbResult.totalPrice)}</b></div>
                               <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>+ Leeway ({item.cost_breakdown.leewayPct}%{Number(form.commission_pct) > 0 ? ` + ${form.commission_pct}% commission` : ''})</span><b>{fmt(cbResult.leewayAmount)}</b></div>
                               <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 900, color: C.purple, fontSize: 13, marginTop: 4 }}><span>{isOverridden ? 'Computed Price (not applied)' : 'Unit Price (auto-applied above)'}</span><span>{fmt(cbResult.unitPrice)}</span></div>
+                              {form.vat_mode === 'included' && <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 900, color: C.purple, fontSize: 13, marginTop: 2 }}><span>× 1.12 VAT Inc → line unit price</span><span>{fmt(cbResult.unitPrice * (1 + VAT_RATE))}</span></div>}
                               {isOverridden && (
                                 <div style={{ marginTop: 8, paddingTop: 8, borderTop: `1px solid ${C.purple}33`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                                   <span style={{ color: C.amber, fontWeight: 700 }}>🔓 You're charging {fmt(Number(item.price))} instead — manually overridden</span>
@@ -2163,7 +2171,7 @@ export default function QuotationsPage() {
                   <select value={invForm.vat_mode} onChange={e => setInvForm((p: any) => ({ ...p, vat_mode: e.target.value }))}
                     style={{ width: '100%', padding: '9px 12px', border: `1.5px solid ${C.lightGray}`, borderRadius: 6, fontSize: 13, fontFamily: 'inherit', boxSizing: 'border-box' }}>
                     <option value="excluded">VAT Excluded (add 12%)</option>
-                    <option value="included">VAT Inc (add 12%)</option>
+                    <option value="included">VAT Inc (prices include 12%)</option>
                     <option value="exempt">VAT Exempt</option>
                   </select>
                 </div>

@@ -15,6 +15,7 @@ const fmt=(n:number)=>`₱${Number(n||0).toLocaleString('en-PH',{minimumFraction
 const VAT_RATE = 0.12
 // Mirrors InvoicesPage's calcTotals(sum, vat_mode).
 function grandTotal(sum: number, vat_mode: string | null | undefined) {
+  if (vat_mode === 'included') return sum
   if (vat_mode === 'exempt') return sum
   return sum * (1 + VAT_RATE) // default 'excluded'
 }

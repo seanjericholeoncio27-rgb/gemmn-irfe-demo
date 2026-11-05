@@ -42,7 +42,7 @@ function quotationTotal(q:any) {
   const items = q.quotation_items || []
   const sum = items.reduce((s:number,i:any)=> i.kind==='item' ? s+(Number(i.qty)||0)*(Number(i.price)||0) : s, 0)
   const discounted = sum * (1 - (Number(q.discount_pct)||0)/100)
-  const total = q.vat_mode === 'exempt' ? discounted : discounted * 1.12
+  const total = q.vat_mode === 'included' || q.vat_mode === 'exempt' ? discounted : discounted * 1.12
   return Math.round(total * 100) / 100
 }
 
@@ -350,7 +350,7 @@ export default function ProjectsPage(){
     return forThisPo.reduce((s,inv)=>{
       const sub=(inv.invoice_items||[]).filter((it:any)=>it.kind==='item').reduce((ss:number,it:any)=>ss+(Number(it.qty)||0)*(Number(it.price)||0),0)
       const discounted = sub * (1-(Number(inv.discount_pct)||0)/100)
-      return s + (inv.vat_mode==='exempt' ? discounted : discounted*1.12)
+      return s + (inv.vat_mode==='included'||inv.vat_mode==='exempt' ? discounted : discounted*1.12)
     },0)
   }
 
@@ -457,7 +457,7 @@ export default function ProjectsPage(){
     const invTotal = (inv:any) => {
       const sub = (inv.invoice_items||[]).filter((it:any)=>it.kind==='item').reduce((ss:number,it:any)=>ss+(Number(it.qty)||0)*(Number(it.price)||0),0)
       const discounted = sub * (1-(Number(inv.discount_pct)||0)/100)
-      return inv.vat_mode==='exempt' ? discounted : discounted*1.12
+      return inv.vat_mode==='included'||inv.vat_mode==='exempt' ? discounted : discounted*1.12
     }
     const total = (data||[]).reduce((s:number,inv:any)=>s+invTotal(inv),0)
     const collected = (data||[]).reduce((s:number,inv:any)=>{
@@ -928,7 +928,7 @@ export default function ProjectsPage(){
     const invs = p.po_number ? monitorInvs.filter(i=>i.po_number===p.po_number).map(i=>i.id).join(', ') : (p.invoice_id||'')
     return base.map((l:any,idx:number)=>{
       const total=(Number(l.qty)||0)*(Number(l.price)||0)
-      const withVat = l.vat_mode==='exempt' ? total : total*1.12
+      const withVat = l.vat_mode==='included'||l.vat_mode==='exempt' ? total : total*1.12
       return { p, first: idx===0, span: base.length, desc:l.description||'', qty:l.qty, unit:l.unit||'', price:Number(l.price)||0, total, withVat, invs }
     })
   })
