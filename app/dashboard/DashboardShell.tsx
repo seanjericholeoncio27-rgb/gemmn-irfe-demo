@@ -114,14 +114,26 @@ export default function DashboardShell({ children, profile }: { children: React.
     return () => clearInterval(timer)
   }, [pathname])
 
-  // ── Notifications — computed live from current data, not a stored/dismissable
-  // log. Simpler and more reliable than tracking read/unread state per user;
-  // an alert just disappears on its own once the underlying condition clears. ──
+  // ── Notifications — computed live from current data. An alert disappears on
+  // its own once the underlying condition clears. On top of that each user can
+  // clear alerts (all, or one): cleared alerts stay hidden on this browser until
+  // their text changes or the condition clears and comes back, so anything NEW
+  // shows up fresh. Newest-appearing alerts are listed first, and the list
+  // re-checks itself every minute and whenever the tab regains focus. ──
   const [notifications, setNotifications] = useState<any[]>([])
+  const [dismissed, setDismissed] = useState<string[]>([])
   const [notifOpen, setNotifOpen] = useState(false)
   const [notifLoading, setNotifLoading] = useState(false)
-  const fetchNotifications = async () => {
-    setNotifLoading(true)
+  const notifKey = (n: any) => `${n.type}|${n.text}`
+  const lsKey = (k: string) => `gemmn:notif:${k}:${profile?.id || 'anon'}`
+  const readLS = (k: string, fallback: any) => { try { const v = localStorage.getItem(lsKey(k)); return v ? JSON.parse(v) : fallback } catch { return fallback } }
+  const writeLS = (k: string, v: any) => { try { localStorage.setItem(lsKey(k), JSON.stringify(v)) } catch {} }
+  const clearNotif = (keys: string[]) => {
+    setDismissed(prev => { const next = Array.from(new Set([...prev, ...keys])); writeLS('dismissed', next); return next })
+  }
+  const restoreNotifs = () => { setDismissed([]); writeLS('dismissed', []) }
+  const fetchNotifications = async (silent = false) => {
+    if (!silent) setNotifLoading(true)
     const today = new Date().toISOString().slice(0, 10)
     const soon = new Date(); soon.setDate(soon.getDate() + 3)
     const soonStr = soon.toISOString().slice(0, 10)
@@ -163,10 +175,33 @@ export default function DashboardShell({ children, profile }: { children: React.
       if (ready.length > 0) items.push({ type: 'Ready to Buy', text: `${ready.length} approved material${ready.length === 1 ? '' : 's'} with an active PO — release a supplier PO`, href: '/dashboard/purchasing', color: C.accent })
     }
 
+    // Stamp when each alert first appeared (newest first); forget cleared/first-seen
+    // entries whose condition has gone, so a recurring alert comes back as new.
+    const now = Date.now()
+    const firstSeen: Record<string, number> = readLS('seen', {})
+    const activeKeys = new Set(items.map(notifKey))
+    const seenNext: Record<string, number> = {}
+    items.forEach(n => { const k = notifKey(n); seenNext[k] = firstSeen[k] || now; n.firstSeen = seenNext[k] })
+    items.sort((a, b) => b.firstSeen - a.firstSeen)
+    writeLS('seen', seenNext)
+    const dismissedNow: string[] = readLS('dismissed', []).filter((k: string) => activeKeys.has(k))
+    writeLS('dismissed', dismissedNow)
+    setDismissed(dismissedNow)
     setNotifications(items)
     setNotifLoading(false)
   }
-  useEffect(() => { if (!perms.loading) fetchNotifications() }, [perms.loading])
+  useEffect(() => {
+    if (perms.loading) return
+    fetchNotifications()
+    const timer = setInterval(() => fetchNotifications(true), 60000)
+    const onVisible = () => { if (document.visibilityState === 'visible') fetchNotifications(true) }
+    document.addEventListener('visibilitychange', onVisible)
+    window.addEventListener('focus', onVisible)
+    return () => { clearInterval(timer); document.removeEventListener('visibilitychange', onVisible); window.removeEventListener('focus', onVisible) }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [perms.loading])
+  const visibleNotifs = notifications.filter(n => !dismissed.includes(notifKey(n)))
+  const clearedCount = notifications.length - visibleNotifs.length
 
   // Sidebar collapse — defaults open on first render (server-safe), then
   // syncs from localStorage right after mount so it persists across pages
@@ -325,26 +360,40 @@ export default function DashboardShell({ children, profile }: { children: React.
               <button onClick={() => { setNotifOpen(o => !o); if (!notifOpen) fetchNotifications() }}
                 style={{ position: 'relative', background: 'none', border: 'none', cursor: 'pointer', fontSize: 18, padding: 6, display: 'flex' }}>
                 🔔
-                {notifications.length > 0 && (
+                {visibleNotifs.length > 0 && (
                   <span style={{ position: 'absolute', top: 0, right: 0, background: C.red, color: C.white, fontSize: 9, fontWeight: 800, borderRadius: 10, minWidth: 16, height: 16, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 3px' }}>
-                    {notifications.length}
+                    {visibleNotifs.length}
                   </span>
                 )}
               </button>
               {notifOpen && (
                 <div onMouseLeave={() => setNotifOpen(false)} style={{ position: 'absolute', top: '130%', right: 0, width: 320, background: C.white, borderRadius: 10, boxShadow: '0 10px 30px rgba(0,0,0,0.15)', border: `1px solid ${C.lightGray}`, maxHeight: 400, overflowY: 'auto', zIndex: 200 }}>
-                  <div style={{ padding: '10px 14px', borderBottom: `1px solid ${C.lightGray}`, fontSize: 11, fontWeight: 800, color: C.gray, textTransform: 'uppercase' }}>Notifications</div>
+                  <div style={{ padding: '10px 14px', borderBottom: `1px solid ${C.lightGray}`, fontSize: 11, fontWeight: 800, color: C.gray, textTransform: 'uppercase', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span>Notifications</span>
+                    {visibleNotifs.length > 0 && (
+                      <button onClick={() => clearNotif(visibleNotifs.map(notifKey))} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 10, fontWeight: 800, color: C.blue, textTransform: 'uppercase' }}>Clear all</button>
+                    )}
+                  </div>
                   {notifLoading ? (
                     <div style={{ padding: 20, textAlign: 'center', fontSize: 12, color: C.gray }}>Loading…</div>
-                  ) : notifications.length === 0 ? (
-                    <div style={{ padding: 20, textAlign: 'center', fontSize: 12, color: C.gray }}>All clear — nothing needs attention.</div>
+                  ) : visibleNotifs.length === 0 ? (
+                    <div style={{ padding: 20, textAlign: 'center', fontSize: 12, color: C.gray }}>{clearedCount > 0 ? 'Cleared — new alerts will appear here.' : 'All clear — nothing needs attention.'}</div>
                   ) : (
-                    notifications.map((n, i) => (
-                      <a key={i} href={n.href} style={{ display: 'block', padding: '10px 14px', textDecoration: 'none', borderBottom: i < notifications.length - 1 ? `1px solid ${C.lightGray}` : 'none' }}>
-                        <span style={{ fontSize: 9, fontWeight: 800, color: n.color, textTransform: 'uppercase' }}>{n.type}</span>
-                        <div style={{ fontSize: 12, color: C.dark, marginTop: 2 }}>{n.text}</div>
-                      </a>
+                    visibleNotifs.map((n, i) => (
+                      <div key={notifKey(n)} style={{ display: 'flex', alignItems: 'flex-start', borderBottom: i < visibleNotifs.length - 1 ? `1px solid ${C.lightGray}` : 'none' }}>
+                        <a href={n.href} style={{ flex: 1, display: 'block', padding: '10px 14px', textDecoration: 'none' }}>
+                          <span style={{ fontSize: 9, fontWeight: 800, color: n.color, textTransform: 'uppercase' }}>{n.type}</span>
+                          {Date.now() - n.firstSeen < 10 * 60 * 1000 && <span style={{ marginLeft: 6, fontSize: 8, fontWeight: 800, color: C.white, background: C.accent, borderRadius: 8, padding: '1px 5px' }}>NEW</span>}
+                          <div style={{ fontSize: 12, color: C.dark, marginTop: 2 }}>{n.text}</div>
+                        </a>
+                        <button onClick={() => clearNotif([notifKey(n)])} aria-label="Clear notification" title="Clear" style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.gray, fontSize: 14, padding: '8px 12px' }}>✕</button>
+                      </div>
                     ))
+                  )}
+                  {clearedCount > 0 && (
+                    <div style={{ padding: '8px 14px', borderTop: `1px solid ${C.lightGray}`, textAlign: 'center' }}>
+                      <button onClick={restoreNotifs} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 10, fontWeight: 700, color: C.gray }}>Show {clearedCount} cleared</button>
+                    </div>
                   )}
                 </div>
               )}
