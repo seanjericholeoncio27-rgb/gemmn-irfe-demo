@@ -140,7 +140,9 @@ function printInvoice(doc: any, items: ItemRow[]) {
   w.document.write(`<html><head><title>Invoice – ${doc.id}</title>
   <style>*{margin:0;padding:0;box-sizing:border-box;font-family:Arial,sans-serif;font-size:12px;-webkit-print-color-adjust:exact;print-color-adjust:exact;color-adjust:exact}
   @media print{*{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;color-adjust:exact!important}}
+  @page{margin:10mm 12mm}
   body{padding:36px;color:#111}
+  @media print{body{padding:0}}
   .top{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px}
   .brand{display:flex;align-items:center}
   .brand img{width:380px;height:auto;flex-shrink:0}
@@ -166,11 +168,12 @@ function printInvoice(doc: any, items: ItemRow[]) {
   .notesbox{width:340px;border:1px solid #000;margin-top:14px}
   .notesbox .hd{background:#e53e3e;color:#fff;font-weight:800;padding:3px 8px;font-size:11px}
   .notesbox .body{min-height:50px;padding:6px 8px;font-size:11px}
-  .closing{margin-top:18px;font-size:11px}
-  .sign{margin-top:50px}
+  .closing{margin-top:12px;font-size:11px}
+  .sign{margin-top:26px;break-inside:avoid;page-break-inside:avoid}
   .sign .sigimg{height:55px;display:block;margin:10px 0 -6px}
   .sign .name{font-weight:800;border-top:1px solid #000;display:inline-block;padding-top:4px;margin-top:6px}
-  .footer{text-align:center;font-weight:800;margin-top:50px;font-size:12px}
+  .footer{text-align:center;font-weight:800;margin-top:22px;font-size:12px;break-inside:avoid;page-break-inside:avoid}
+  tr{break-inside:avoid;page-break-inside:avoid}
   .status{display:inline-block;padding:3px 12px;border-radius:16px;font-size:11px;font-weight:800;margin-top:4px;background:${doc.status === 'Paid' ? '#dbeafe' : isOverdue(doc) ? '#fee2e2' : '#fef3c7'};color:${doc.status === 'Paid' ? '#1d4ed8' : isOverdue(doc) ? '#b91c1c' : '#d97706'}}
   .watermark{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%) rotate(-30deg);font-size:80px;font-weight:900;color:rgba(57,181,74,0.06);pointer-events:none;letter-spacing:10px}
   </style></head><body>
