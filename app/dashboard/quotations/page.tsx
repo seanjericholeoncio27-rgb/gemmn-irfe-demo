@@ -1166,8 +1166,8 @@ export default function QuotationsPage() {
           const { unitPrice, oneTimeCharges } = calcCostBuilder(it.cost_breakdown, matCost, form.commission_pct, it.qty)
           // VAT Inc: the Cost Builder price is the vatable base; the line carries the VAT-inclusive price (base × 1.12)
           const linePrice = form.vat_mode === 'included' ? unitPrice * (1 + VAT_RATE) : unitPrice
-          // 4 dp when a one-time charge is spread over qty, so qty × price keeps the cents exact
-          const dp = oneTimeCharges > 0 ? 10000 : 100
+          // 4 dp when a one-time charge is spread over more than 1 pc, so qty × price keeps the cents exact
+          const dp = oneTimeCharges > 0 && Number(it.qty) > 1 ? 10000 : 100
           const rounded = Math.round(linePrice * dp) / dp
           if (Number(it.price) !== rounded) { changed = true; return { ...it, price: rounded } }
         }
