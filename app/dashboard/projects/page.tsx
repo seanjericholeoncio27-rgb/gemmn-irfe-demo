@@ -331,7 +331,11 @@ export default function ProjectsPage(){
     // KPI counts would silently be short by however many rows sort last.
     const [{data},{data:invs},{data:tl}]=await Promise.all([
       fetchAllPages<any>((from, to) => supabase.from('projects').select('*').order('created_at',{ascending:false}).range(from, to)),
-      fetchAllPages<any>((from, to) => supabase.from('invoices').select('*, invoice_items(*)').range(from, to)),
+      // The list only needs each invoice's PO link, VAT mode, discount and line totals,
+      // so it skips the heavy columns (signature image, item images, cost-builder JSON).
+      // Falls back to the full select if the light column list is ever rejected.
+      fetchAllPages<any>((from, to) => supabase.from('invoices').select('id,po_number,vat_mode,discount_pct,invoice_items(kind,qty,price)').range(from, to))
+        .catch(() => fetchAllPages<any>((from, to) => supabase.from('invoices').select('*, invoice_items(*)').range(from, to))),
       fetchAllPages<any>((from, to) => supabase.from('project_timeline').select('po_number,event_type').range(from, to)),
     ])
     if(data) setProjects(data)

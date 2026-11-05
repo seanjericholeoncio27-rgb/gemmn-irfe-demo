@@ -64,6 +64,17 @@ type ItemRow = {
 }
 
 const BLANK_ITEM: ItemRow = { kind: 'item', description: '', qty: 1, unit: '', price: 0 }
+
+// ── Fast list loading ───────────────────────────────────────────────────────
+// The list only needs totals + a one-line blurb, so it loads WITHOUT the heavy
+// columns (signature image, pasted reference images, cost-builder JSON, item
+// details). The full record is fetched on demand when a row is viewed, edited,
+// or converted (fullOf below). The last list is also kept in memory so coming
+// back to the page shows data instantly while a fresh copy loads behind it.
+const LIST_COLS = 'id,client,date,valid_until,status,notes,tax,created_at,company_name,address,attention,delivery_date,payment_terms,prepared_by,vat_mode,signatory_position,commission_referrer,commission_pct,commission_status,discount_pct,po_number,version_number,root_quotation_id,job_order_number'
+const LIST_SELECT = `${LIST_COLS}, quotation_items(id,quotation_id,kind,description,qty,unit,price,position)`
+const LIST_PAGE = 1000
+let QUOTATION_LIST_CACHE: any[] | null = null
 const BLANK_MATERIAL: ItemRow = { kind: 'material', description: '', dimension: '', show_on_export: false, qty: '', unit: '', price: '' }
 
 function calcTotals(sum: number, vat_mode: string) {
@@ -321,7 +332,7 @@ const BLANK_FORM = {
 
 export default function QuotationsPage() {
   const supabase = createClient()
-  const [quotations, setQuotations] = useState<any[]>([])
+  const [quotations, setQuotations] = useState<any[]>(QUOTATION_LIST_CACHE ?? [])
   // Real supplier prices from Purchasing — lets material lines suggest an
   // actual cheapest-known cost instead of a manually guessed number.
   const [supplierMaterials, setSupplierMaterials] = useState<any[]>([])
@@ -333,7 +344,7 @@ export default function QuotationsPage() {
       .filter(m => m.material_name.toLowerCase().includes(q) || q.includes(m.material_name.toLowerCase()))
       .sort((a, b) => a.price - b.price)
   }
-  const [loading, setLoading] = useState(true)
+  const [loading, setLoading] = useState(QUOTATION_LIST_CACHE === null)
   const [saving, setSaving] = useState(false)
 
   // ── Pre-sale material quoting: send a material line to Purchasing for a
@@ -525,16 +536,49 @@ export default function QuotationsPage() {
   useEffect(() => { fetchTemplates() }, [fetchTemplates])
 
   const fetchQuotations = useCallback(async () => {
-    setLoading(true)
-    // Supabase's PostgREST layer caps an unranged select at 1000 rows — the
-    // live quotations table has already passed that (1,235+ after the
-    // historical migration), so without an explicit range the KPI tiles and
-    // list below would silently show a truncated "Total: 1000" instead of
-    // the real count. 9999 gives headroom well past current + near-term growth.
-    const { data } = await fetchAllPages<any>((from, to) => supabase.from('quotations').select('*, quotation_items(*)').order('created_at', { ascending: false }).range(from, to))
-    if (data) setQuotations(data as any)
+    if (QUOTATION_LIST_CACHE === null) setLoading(true)
+    // PostgREST caps a select at 1000 rows and the live table has passed that, so
+    // the list is read in 1000-row pages: page 1 comes back with the total count
+    // and is shown immediately; any remaining pages are then fetched in PARALLEL
+    // (not one after another) and appended.
+    const listQuery = (from: number, to: number, withCount = false) =>
+      supabase.from('quotations').select(LIST_SELECT, withCount ? { count: 'exact' } : undefined).order('created_at', { ascending: false }).range(from, to)
+    let first: any = await listQuery(0, LIST_PAGE - 1, true)
+    if (first.error) {
+      // Safety net: if the light column list ever disagrees with the database,
+      // fall back to the original full select so the page still works.
+      const { data } = await fetchAllPages<any>((from, to) => supabase.from('quotations').select('*, quotation_items(*)').order('created_at', { ascending: false }).range(from, to))
+      if (data) { QUOTATION_LIST_CACHE = data as any; setQuotations(data as any) }
+      setLoading(false)
+      return
+    }
+    let rows: any[] = first.data || []
+    if (rows.length > 0) { QUOTATION_LIST_CACHE = rows; setQuotations(rows) }
     setLoading(false)
+    const total = first.count ?? rows.length
+    if (total > LIST_PAGE) {
+      const starts: number[] = []
+      for (let from = LIST_PAGE; from < total; from += LIST_PAGE) starts.push(from)
+      const rest = await Promise.all(starts.map(from => listQuery(from, from + LIST_PAGE - 1)))
+      rest.forEach(r => { if (r.data) rows = rows.concat(r.data) })
+    }
+    QUOTATION_LIST_CACHE = rows
+    setQuotations(rows)
   }, [supabase])
+
+  // Full record (signature, item images, cost-builder, details) on demand. Rows
+  // from the list don't carry `signature_data`; a row that does is already full.
+  const fullOf = async (q: any) => {
+    if (!q || 'signature_data' in q) return q
+    const { data } = await supabase.from('quotations').select('*, quotation_items(*)').eq('id', q.id).single()
+    return data || q
+  }
+  const [opening, setOpening] = useState<string | null>(null)
+  const withFull = async (q: any, fn: (full: any) => void) => {
+    setOpening(q.id)
+    try { fn(await fullOf(q)) } finally { setOpening(null) }
+  }
+  const viewQuotation = (q: any) => withFull(q, full => setShowPrint(full))
 
   useEffect(() => { fetchQuotations() }, [fetchQuotations])
 
@@ -558,7 +602,8 @@ export default function QuotationsPage() {
     setAttachments([])
   }
 
-  const openEdit = (q: any) => {
+  const openEdit = (q: any) => withFull(q, openEditFull)
+  const openEditFull = (q: any) => {
     setForm({ ...BLANK_FORM, ...q, valid_until: q.valid_until || oneMonthLater(q.date) })
     const sorted = (q.quotation_items || []).slice().sort((a: any, b: any) => (a.position || 0) - (b.position || 0))
     setItems(sorted.length ? sorted.map((i: any) => ({ ...i })) : [{ ...BLANK_ITEM }])
@@ -1038,7 +1083,8 @@ export default function QuotationsPage() {
   const [invError, setInvError] = useState('')
   const [invSaving, setInvSaving] = useState(false)
 
-  const convertToInvoice = (q: any) => {
+  const convertToInvoice = (q0: any) => withFull(q0, convertToInvoiceFull)
+  const convertToInvoiceFull = (q: any) => {
     const suggested = `INV-${new Date().getFullYear()}-${String(quotations.filter(x => x.status === 'Invoiced').length + 1).padStart(3, '0')}`
     setConvertSource(q)
     setInvForm({
@@ -1256,6 +1302,7 @@ export default function QuotationsPage() {
 
   return (
     <div>
+      {opening && <div style={{ position: 'fixed', top: 14, left: '50%', transform: 'translateX(-50%)', background: C.darkGreen, color: C.white, fontSize: 12, fontWeight: 700, padding: '8px 18px', borderRadius: 20, zIndex: 400, boxShadow: '0 4px 16px rgba(0,0,0,0.2)' }}>Opening {opening}…</div>}
       {(() => {
         const expiring = quotations.filter(q => quotationExpiryStatus(q))
         if (expiring.length === 0) return null
@@ -1324,7 +1371,7 @@ export default function QuotationsPage() {
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', background: `${C.accent}12`, border: `1.5px solid ${C.accent}55`, borderRadius: 8, padding: '8px 12px', marginBottom: 8, fontSize: 12 }}>
                   <b style={{ color: C.darkGreen }}>{sq.id}</b><span style={{ color: C.gray }}>{sq.company_name || sq.client} · {fmt(calcTotalsWithDiscount(sq.quotation_items || [], sq).grand)} · {sq.status}</span>
                   <span style={{ flex: 1 }} />
-                  <button onClick={() => setShowPrint(sq)} style={{ padding: '5px 12px', fontSize: 10, fontWeight: 700, background: `${C.accent}18`, border: `1px solid ${C.accent}44`, color: C.accent, borderRadius: 5, cursor: 'pointer' }}>View</button>
+                  <button onClick={() => viewQuotation(sq)} style={{ padding: '5px 12px', fontSize: 10, fontWeight: 700, background: `${C.accent}18`, border: `1px solid ${C.accent}44`, color: C.accent, borderRadius: 5, cursor: 'pointer' }}>View</button>
                   {canEdit && <button onClick={() => openEdit(sq)} style={{ padding: '5px 12px', fontSize: 10, fontWeight: 700, background: `${C.blue}18`, border: `1px solid ${C.blue}44`, color: C.blue, borderRadius: 5, cursor: 'pointer' }}>Edit</button>}
                   <button onClick={() => setRowSel(null)} style={{ padding: '5px 9px', fontSize: 10, fontWeight: 700, background: 'none', border: 'none', color: C.gray, cursor: 'pointer' }}>✕ Clear</button>
                 </div>
@@ -1345,7 +1392,7 @@ export default function QuotationsPage() {
                 const t = calcTotalsWithDiscount(q.quotation_items || [], q)
                 return <tr key={q.id}
                   onClick={e => { if ((e.target as HTMLElement).closest('button,input,a,select')) return; setRowSel(p => p === q.id ? null : q.id) }}
-                  onDoubleClick={e => { if ((e.target as HTMLElement).closest('button,input,a,select')) return; if (canEdit) openEdit(q); else setShowPrint(q) }}
+                  onDoubleClick={e => { if ((e.target as HTMLElement).closest('button,input,a,select')) return; if (canEdit) openEdit(q); else viewQuotation(q) }}
                   style={{ cursor: 'pointer', background: rowSel === q.id ? `${C.accent}1c` : batchMode && batchSelected[q.id] ? `${C.amber}10` : (i % 2 === 0 ? C.white : '#f9fbf9'), borderBottom: `1px solid ${C.lightGray}`, boxShadow: rowSel === q.id ? `inset 3px 0 0 ${C.accent}` : 'none' }}>
                   {batchMode && <td style={{ padding: '9px 10px' }}><input type="checkbox" checked={!!batchSelected[q.id]} onChange={() => toggleBatch(q.id)} /></td>}
                   <td style={{ padding: '9px 12px', fontWeight: 800, color: C.darkGreen, fontSize: 11 }}>{q.id}</td>
@@ -1363,7 +1410,7 @@ export default function QuotationsPage() {
                   <td style={{ padding: '9px 12px' }}><Badge label={q.status} /></td>
                   <td style={{ padding: '9px 12px' }}>
                     <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                      <button onClick={() => setShowPrint(q)} style={{ padding: '4px 10px', fontSize: 10, fontWeight: 700, background: `${C.accent}18`, border: `1px solid ${C.accent}44`, color: C.accent, borderRadius: 4, cursor: 'pointer', fontFamily: 'inherit' }}>View</button>
+                      <button onClick={() => viewQuotation(q)} style={{ padding: '4px 10px', fontSize: 10, fontWeight: 700, background: `${C.accent}18`, border: `1px solid ${C.accent}44`, color: C.accent, borderRadius: 4, cursor: 'pointer', fontFamily: 'inherit' }}>View</button>
                       {canEdit && <button onClick={() => openEdit(q)} style={{ padding: '4px 10px', fontSize: 10, fontWeight: 700, background: `${C.blue}18`, border: `1px solid ${C.blue}44`, color: C.blue, borderRadius: 4, cursor: 'pointer', fontFamily: 'inherit' }}>Edit</button>}
                       {canEdit && q.status === 'Approved' && <button onClick={() => convertToInvoice(q)} style={{ padding: '4px 10px', fontSize: 10, fontWeight: 700, background: `${C.purple}18`, border: `1px solid ${C.purple}44`, color: C.purple, borderRadius: 4, cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap' }}>→ Invoice</button>}
                     </div>
