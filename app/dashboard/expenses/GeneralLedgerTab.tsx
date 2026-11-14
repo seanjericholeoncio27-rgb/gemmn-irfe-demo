@@ -1,5 +1,6 @@
 'use client'
 import { useEffect, useMemo, useState } from 'react'
+import { INVOICE_SELECT } from '@/lib/listColumns'
 import { createClient } from '@/lib/supabase'
 import { fetchAll as fetchAllPages } from '@/lib/fetchAll'
 
@@ -109,7 +110,7 @@ export default function GeneralLedgerTab() {
     (async () => {
       setLoading(true)
       const [inv, poi, pos, sups, exp, txn, chain, unt] = await Promise.all([
-        fetchAllPages<any>((a, b) => supabase.from('invoices').select('*, invoice_items(*)').range(a, b)),
+        fetchAllPages<any>((a, b) => supabase.from('invoices').select(INVOICE_SELECT).range(a, b)),
         fetchAllPages<any>((a, b) => supabase.from('purchase_order_invoices').select('*').range(a, b)),
         fetchAllPages<any>((a, b) => supabase.from('purchase_orders').select('id,supplier_id').range(a, b)),
         supabase.from('suppliers').select('id,name'),

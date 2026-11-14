@@ -28,17 +28,32 @@ export async function fetchAll<T>(
   queryFn: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: PostgrestError | null }>
 ): Promise<{ data: T[] }> {
   const out: T[] = []
-  let from = 0
+  // Page 1 alone first: most tables are under 1000 rows, so that is one request.
+  const first = await queryFn(0, PAGE_SIZE - 1)
+  if (first.error) throw first.error
+  const firstBatch = first.data || []
+  out.push(...firstBatch)
+  if (firstBatch.length < PAGE_SIZE) return { data: out }
+  // Table is bigger than one page: fetch the remaining pages in waves of
+  // WAVE parallel requests (instead of one after another), keeping page order.
   // Hard stop at 500 pages (500,000 rows) so a bug elsewhere can't spin this
   // into an infinite loop against the database.
-  for (let page = 0; page < 500; page++) {
-    const to = from + PAGE_SIZE - 1
-    const { data, error } = await queryFn(from, to)
-    if (error) throw error
-    const batch = data || []
-    out.push(...batch)
-    if (batch.length < PAGE_SIZE) break
-    from += PAGE_SIZE
+  const WAVE = 3
+  for (let page = 1; page < 500; page += WAVE) {
+    const wave = await Promise.all(
+      Array.from({ length: WAVE }, (_, k) => {
+        const from = (page + k) * PAGE_SIZE
+        return queryFn(from, from + PAGE_SIZE - 1)
+      })
+    )
+    let done = false
+    for (const res of wave) {
+      if (res.error) throw res.error
+      const batch = res.data || []
+      out.push(...batch)
+      if (batch.length < PAGE_SIZE) { done = true; break }
+    }
+    if (done) break
   }
   return { data: out }
 }

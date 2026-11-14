@@ -1,5 +1,6 @@
 'use client'
 import { useEffect, useState, useCallback, useRef } from 'react'
+import { QUOTATION_SELECT, INVOICE_COLS } from '@/lib/listColumns'
 import { SkeletonPanel } from '@/components/Skeleton'
 import { createClient } from '@/lib/supabase'
 import { fetchAll as fetchAllPages } from '@/lib/fetchAll'
@@ -406,8 +407,8 @@ export default function DashboardPage() {
       // company's history (or, for payroll, aren't date-filtered server-side
       // at all) and can realistically pass 1000 rows the same way
       // quotations/projects already did.
-      fetchAllPages<any>((from, to) => supabase.from('invoices').select('*').gte('date', dateFrom).lte('date', dateTo).order('date').range(from, to)),
-      fetchAllPages<any>((from, to) => supabase.from('invoice_items').select('*').range(from, to)),
+      fetchAllPages<any>((from, to) => supabase.from('invoices').select(INVOICE_COLS).gte('date', dateFrom).lte('date', dateTo).order('date').range(from, to)),
+      fetchAllPages<any>((from, to) => supabase.from('invoice_items').select('invoice_id,kind,qty,price').range(from, to)),
       fetchAllPages<any>((from, to) => supabase.from('expenses').select('*').gte('date', dateFrom).lte('date', dateTo).order('date').range(from, to)),
       fetchAllPages<any>((from, to) => supabase.from('payroll').select('*, employees(*), payroll_runs(period_start,period_end)').order('created_at', { ascending: false }).range(from, to)),
       supabase.from('employees').select('*'),
@@ -419,10 +420,10 @@ export default function DashboardPage() {
       // filtering this fetch by the selected period silently dropped it
       // and was the real source of this card disagreeing with the
       // Quotations page's own (unscoped) Pipeline figure.
-      fetchAllPages<any>((from, to) => supabase.from('quotations').select('*, quotation_items(*)').order('date').range(from, to)),
+      fetchAllPages<any>((from, to) => supabase.from('quotations').select(QUOTATION_SELECT).order('date').range(from, to)),
       fetchAllPages<any>((from, to) => supabase.from('inventory').select('*').range(from, to)),
       fetchAllPages<any>((from, to) => supabase.from('projects').select('*').order('created_at', { ascending: false }).range(from, to)),
-      supabase.from('invoices').select('*').gte('date', prevFromStr).lte('date', prevToStr),
+      supabase.from('invoices').select(INVOICE_COLS).gte('date', prevFromStr).lte('date', prevToStr),
       supabase.from('expenses').select('*').gte('date', prevFromStr).lte('date', prevToStr),
     ])
     setInvoices(inv || []); setInvoiceItems(invItems || []); setExpenses(exp || [])

@@ -1,5 +1,6 @@
 'use client'
 import { useEffect, useState, useCallback, useRef } from 'react'
+import { QUOTATION_SELECT, INVOICE_COLS, INVOICE_SELECT } from '@/lib/listColumns'
 import { SkeletonPanel } from '@/components/Skeleton'
 import { createClient } from '@/lib/supabase'
 import { fetchAll as fetchAllPages } from '@/lib/fetchAll'
@@ -419,17 +420,17 @@ export default function ReportsPage(){
       {data:quo},{data:proj},{data:inven},{data:equip},
       {data:pInv},{data:pExp},{data:bankTxns},{data:pcfVouchers},
     ]=await Promise.all([
-      supabase.from('invoices').select('*').gte('date',dateFrom).lte('date',dateTo).order('date'),
+      supabase.from('invoices').select(INVOICE_COLS).gte('date',dateFrom).lte('date',dateTo).order('date'),
       fetchAllPages<any>((from, to) => supabase.from('invoice_items').select('*').range(from, to)),
       supabase.from('expenses').select('*').gte('date',dateFrom).lte('date',dateTo).order('date'),
       fetchAllPages<any>((from, to) => supabase.from('payroll').select('*, employees(*)').order('created_at',{ascending:false}).range(from, to)),
       // .range() guards against Supabase's 1000-row default cap — both
       // tables have already passed 1000 rows since the historical migration.
-      fetchAllPages<any>((from, to) => supabase.from('quotations').select('*, quotation_items(*)').gte('date',dateFrom).lte('date',dateTo).order('date').range(from, to)),
+      fetchAllPages<any>((from, to) => supabase.from('quotations').select(QUOTATION_SELECT).gte('date',dateFrom).lte('date',dateTo).order('date').range(from, to)),
       fetchAllPages<any>((from, to) => supabase.from('projects').select('*').order('created_at',{ascending:false}).range(from, to)),
       supabase.from('inventory').select('*'),
       supabase.from('equipment').select('*'),
-      supabase.from('invoices').select('*').gte('date',prevFromStr).lte('date',prevToStr),
+      supabase.from('invoices').select(INVOICE_COLS).gte('date',prevFromStr).lte('date',prevToStr),
       supabase.from('expenses').select('*').gte('date',prevFromStr).lte('date',prevToStr),
       supabase.from('bank_transactions').select('*').gte('date',dateFrom).lte('date',dateTo).order('date'),
       supabase.from('petty_cash_vouchers').select('*, petty_cash_voucher_lines(*), petty_cash_periods(period_label)').gte('date',dateFrom).lte('date',dateTo).order('date'),
@@ -447,8 +448,8 @@ export default function ReportsPage(){
       {data:allQuo},{data:wideInv},{data:wideExp},{data:recentPay},
       {data:empLoans},{data:equipLoans},{data:targets}
     ] = await Promise.all([
-      fetchAllPages<any>((from, to) => supabase.from('quotations').select('*, quotation_items(*)').order('date',{ascending:false}).range(from, to)),
-      fetchAllPages<any>((from, to) => supabase.from('invoices').select('*, invoice_items(*)').gte('date',sixMoStr).order('date').range(from, to)),
+      fetchAllPages<any>((from, to) => supabase.from('quotations').select(QUOTATION_SELECT).order('date',{ascending:false}).range(from, to)),
+      fetchAllPages<any>((from, to) => supabase.from('invoices').select(INVOICE_SELECT).gte('date',sixMoStr).order('date').range(from, to)),
       fetchAllPages<any>((from, to) => supabase.from('expenses').select('*').gte('date',sixMoStr).order('date').range(from, to)),
       // Intentional recent-80-records window for the Forecast baseline, not a bug.
       supabase.from('payroll').select('*, employees(*)').order('created_at',{ascending:false}).limit(80),

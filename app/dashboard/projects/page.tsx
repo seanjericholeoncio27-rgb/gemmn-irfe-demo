@@ -1,5 +1,6 @@
 'use client'
 import { useEffect, useState, useCallback } from 'react'
+import { QUOTATION_SELECT, INVOICE_SELECT } from '@/lib/listColumns'
 import { SkeletonPanel } from '@/components/Skeleton'
 import { createClient } from '@/lib/supabase'
 import { fetchAll as fetchAllPages } from '@/lib/fetchAll'
@@ -266,7 +267,7 @@ export default function ProjectsPage(){
   // revised, so we can prompt a re-sync rather than silently going stale.
   const [poQuotationsAll,setPoQuotationsAll]=useState<any[]>([])
   const fetchPoQuotations = useCallback(async (po:string) => {
-    const {data} = await supabase.from('quotations').select('*, quotation_items(*)').eq('po_number', po)
+    const {data} = await supabase.from('quotations').select(QUOTATION_SELECT).eq('po_number', po)
     setPoQuotationsAll(data||[])
   },[supabase])
   const currentPoQuotations = poQuotationsAll.filter(q=>q.status!=='Superseded')
@@ -334,8 +335,8 @@ export default function ProjectsPage(){
       // The list only needs each invoice's PO link, VAT mode, discount and line totals,
       // so it skips the heavy columns (signature image, item images, cost-builder JSON).
       // Falls back to the full select if the light column list is ever rejected.
-      fetchAllPages<any>((from, to) => supabase.from('invoices').select('id,po_number,vat_mode,discount_pct,invoice_items(kind,qty,price)').range(from, to))
-        .catch(() => fetchAllPages<any>((from, to) => supabase.from('invoices').select('*, invoice_items(*)').range(from, to))),
+      fetchAllPages<any>((from, to) => supabase.from('invoices').select('id,po_number,vat_mode,invoice_items(kind,qty,price)').range(from, to))
+        .catch(() => fetchAllPages<any>((from, to) => supabase.from('invoices').select(INVOICE_SELECT).range(from, to))),
       fetchAllPages<any>((from, to) => supabase.from('project_timeline').select('po_number,event_type').range(from, to)),
     ])
     if(data) setProjects(data)
@@ -383,7 +384,7 @@ export default function ProjectsPage(){
   useEffect(()=>{ fetch(); fetchDocs() },[fetch, fetchDocs])
 
   const fetchAvailableQuotations = useCallback(async (poBeingCreated?:string) => {
-    let query = supabase.from('quotations').select('*, quotation_items(*)').eq('status','Approved')
+    let query = supabase.from('quotations').select(QUOTATION_SELECT).eq('status','Approved')
     // Show untagged quotations (ready to be freshly attached) AND anything
     // someone already pre-tagged with this exact PO number directly on the
     // quotation itself — otherwise a quotation typed with a PO number first
@@ -457,7 +458,7 @@ export default function ProjectsPage(){
   const [poInvoicesList,setPoInvoicesList]=useState<any[]>([])
   const [poCollectedTotal,setPoCollectedTotal]=useState(0)
   const fetchPoInvoicedTotal = useCallback(async (po:string) => {
-    const {data} = await supabase.from('invoices').select('*, invoice_items(*)').eq('po_number', po).order('date')
+    const {data} = await supabase.from('invoices').select(INVOICE_SELECT).eq('po_number', po).order('date')
     const invTotal = (inv:any) => {
       const sub = (inv.invoice_items||[]).filter((it:any)=>it.kind==='item').reduce((ss:number,it:any)=>ss+(Number(it.qty)||0)*(Number(it.price)||0),0)
       const discounted = sub * (1-(Number(inv.discount_pct)||0)/100)
@@ -485,7 +486,7 @@ export default function ProjectsPage(){
       if (it.source_line_uid) invoicedQtyByLine[it.source_line_uid] = (invoicedQtyByLine[it.source_line_uid]||0) + Number(it.qty||0)
     }))
 
-    const {data: linkedQuotes} = await supabase.from('quotations').select('*, quotation_items(*)').eq('po_number', po)
+    const {data: linkedQuotes} = await supabase.from('quotations').select(QUOTATION_SELECT).eq('po_number', po)
     const lines:any[] = []
     ;(linkedQuotes||[]).filter((q:any)=>q.status!=='Superseded').forEach((q:any) => {
       (q.quotation_items||[]).filter((it:any)=>it.kind==='item' && it.line_uid).forEach((it:any) => {

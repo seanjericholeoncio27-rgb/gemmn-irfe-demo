@@ -1,5 +1,6 @@
 'use client'
 import { useEffect, useState, useCallback, useRef } from 'react'
+import { INVOICE_SELECT } from '@/lib/listColumns'
 import { SkeletonPanel } from '@/components/Skeleton'
 import { createClient } from '@/lib/supabase'
 import { fetchAll as fetchAllPages } from '@/lib/fetchAll'
@@ -135,7 +136,7 @@ export default function ExpensesPage() {
     // Same 1000-row PostgREST cap applies here, so it's ranged too — the
     // table-scoped filter (status='Paid') narrows it, but not reliably below
     // the cap as more invoices accumulate.
-    const { data: paidInv } = await fetchAllPages<any>((from, to) => supabase.from('invoices').select('*, invoice_items(*)').eq('status','Paid').order('collection_date',{ascending:false}).range(from, to))
+    const { data: paidInv } = await fetchAllPages<any>((from, to) => supabase.from('invoices').select(INVOICE_SELECT).eq('status','Paid').order('collection_date',{ascending:false}).range(from, to))
     setPaidInvoicesForAccounting(paidInv || [])
     setLoading(false)
   }, [supabase])

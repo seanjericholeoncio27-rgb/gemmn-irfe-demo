@@ -1,5 +1,6 @@
 'use client'
 import { useEffect, useState, useCallback, useRef } from 'react'
+import { INVOICE_COLS } from '@/lib/listColumns'
 import { SkeletonPanel } from '@/components/Skeleton'
 import { createClient } from '@/lib/supabase'
 import { fetchAll as fetchAllPages } from '@/lib/fetchAll'
@@ -232,6 +233,9 @@ function printInvoice(doc: any, items: ItemRow[]) {
   w.document.close(); w.focus(); setTimeout(() => { w.print(); w.close() }, 400)
 }
 
+// Last loaded list, kept in memory so revisiting the page shows data instantly while a fresh copy loads.
+let INVOICE_LIST_CACHE: any[] | null = null
+
 const BLANK_FORM = {
   id: '', client: '', company_name: '', address: '', attention: '',
   quotation_id: '', date: '', payment_terms: '30 Days', status: 'Pending',
@@ -260,9 +264,9 @@ function isOverdue(inv: any): boolean {
 
 export default function InvoicesPage() {
   const supabase = createClient()
-  const [invoices, setInvoices] = useState<any[]>([])
+  const [invoices, setInvoices] = useState<any[]>(INVOICE_LIST_CACHE ?? [])
   const [quotations, setQuotations] = useState<any[]>([])
-  const [loading, setLoading] = useState(true)
+  const [loading, setLoading] = useState(INVOICE_LIST_CACHE === null)
   const [saving, setSaving] = useState(false)
   const [showModal, setShowModal] = useState(false)
   const [showPrint, setShowPrint] = useState<any>(null)
@@ -280,14 +284,28 @@ export default function InvoicesPage() {
   const f = (k: string) => (v: any) => setForm((p: any) => ({ ...p, [k]: v }))
 
   const fetchInvoices = useCallback(async () => {
-    setLoading(true)
+    if (INVOICE_LIST_CACHE === null) setLoading(true)
     // PostgREST silently caps an unranged select at 1000 rows; this table went through the same
     // historical-data migration (backfilled many rows at once — see sort comment below) that already
     // silently truncated KPI counts elsewhere, so .range() is cheap insurance against the same bug here.
-    const { data } = await fetchAllPages<any>((from, to) => supabase.from('invoices').select('*, invoice_items(*)').order('created_at', { ascending: false }).range(from, to))
-    if (data) setInvoices(data)
+    const { data } = await fetchAllPages<any>((from, to) => supabase.from('invoices').select(`${INVOICE_COLS}, invoice_items(id,invoice_id,kind,description,qty,unit,price,position)`).order('created_at', { ascending: false }).range(from, to))
+    if (data) { INVOICE_LIST_CACHE = data; setInvoices(data) }
     setLoading(false)
   }, [supabase])
+
+  // The list loads WITHOUT the signature image and item images; the full record is
+  // fetched when a row is viewed or edited. A row that has `signature_data` is already full.
+  const fullOf = async (inv: any) => {
+    if (!inv || 'signature_data' in inv) return inv
+    const { data } = await supabase.from('invoices').select('*, invoice_items(*)').eq('id', inv.id).single()
+    return data || inv
+  }
+  const [opening, setOpening] = useState<string | null>(null)
+  const withFull = async (inv: any, fn: (full: any) => void) => {
+    setOpening(inv.id)
+    try { fn(await fullOf(inv)) } finally { setOpening(null) }
+  }
+  const viewInvoice = (inv: any) => withFull(inv, full => setShowPrint(full))
 
   const [rowSel, setRowSel] = useState<string | null>(null)
   const [signatories, setSignatories] = useState<any[]>([])
@@ -324,7 +342,8 @@ export default function InvoicesPage() {
     setSelected(null); setError(''); setIdAvailable(true); setShowModal(true)
   }
 
-  const openEdit = (inv: any) => {
+  const openEdit = (inv: any) => withFull(inv, openEditFull)
+  const openEditFull = (inv: any) => {
     setForm({ ...BLANK_FORM, ...inv })
     const sorted = (inv.invoice_items || []).slice().sort((a: any, b: any) => (a.position || 0) - (b.position || 0))
     setItems(sorted.length ? sorted.map((i: any) => ({ ...i })) : [{ ...BLANK_ITEM }])
@@ -509,6 +528,7 @@ export default function InvoicesPage() {
 
   return (
     <div>
+      {opening && <div style={{ position: 'fixed', top: 14, left: '50%', transform: 'translateX(-50%)', background: C.darkGreen, color: C.white, fontSize: 12, fontWeight: 700, padding: '8px 18px', borderRadius: 20, zIndex: 400, boxShadow: '0 4px 16px rgba(0,0,0,0.2)' }}>Opening {opening}…</div>}
       {/* KPIs */}
       {/* Total Invoiced's dollar value already excludes Cancelled invoices (it's just totalPaid+totalPending+totalOverdue),
           so its "N invoices" subtitle must exclude them too, or it overstates how many invoices the total represents. */}
@@ -547,7 +567,7 @@ export default function InvoicesPage() {
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', background: `${C.accent}12`, border: `1.5px solid ${C.accent}55`, borderRadius: 8, padding: '8px 12px', marginBottom: 8, fontSize: 12 }}>
                   <b style={{ color: C.darkGreen }}>{si.id}</b><span style={{ color: C.gray }}>{si.company_name || si.client} · {fmt(getInvTotal(si))} · {isOverdue(si) ? 'Overdue' : si.status}</span>
                   <span style={{ flex: 1 }} />
-                  <button onClick={() => setShowPrint(si)} style={{ padding: '5px 12px', fontSize: 10, fontWeight: 700, background: `${C.accent}18`, border: `1px solid ${C.accent}44`, color: C.accent, borderRadius: 5, cursor: 'pointer' }}>View</button>
+                  <button onClick={() => viewInvoice(si)} style={{ padding: '5px 12px', fontSize: 10, fontWeight: 700, background: `${C.accent}18`, border: `1px solid ${C.accent}44`, color: C.accent, borderRadius: 5, cursor: 'pointer' }}>View</button>
                   {canEdit && <button onClick={() => openEdit(si)} style={{ padding: '5px 12px', fontSize: 10, fontWeight: 700, background: `${C.blue}18`, border: `1px solid ${C.blue}44`, color: C.blue, borderRadius: 5, cursor: 'pointer' }}>Edit</button>}
                   <button onClick={() => setRowSel(null)} style={{ padding: '5px 9px', fontSize: 10, fontWeight: 700, background: 'none', border: 'none', color: C.gray, cursor: 'pointer' }}>✕ Clear</button>
                 </div>
@@ -562,7 +582,7 @@ export default function InvoicesPage() {
               <tbody>{paged.map((inv, i) => (
                 <tr key={inv.id}
                   onClick={e => { if ((e.target as HTMLElement).closest('button,input,a,select')) return; setRowSel(p => p === inv.id ? null : inv.id) }}
-                  onDoubleClick={e => { if ((e.target as HTMLElement).closest('button,input,a,select')) return; if (canEdit) openEdit(inv); else setShowPrint(inv) }}
+                  onDoubleClick={e => { if ((e.target as HTMLElement).closest('button,input,a,select')) return; if (canEdit) openEdit(inv); else viewInvoice(inv) }}
                   style={{ cursor: 'pointer', background: rowSel === inv.id ? `${C.accent}1c` : (i % 2 === 0 ? C.white : '#f9fbf9'), borderBottom: `1px solid ${C.lightGray}`, boxShadow: rowSel === inv.id ? `inset 3px 0 0 ${C.accent}` : 'none' }}>
                   <td style={{ padding: '9px 12px', fontWeight: 800, color: C.darkGreen, fontSize: 11 }}>{inv.id}</td>
                   <td style={{ padding: '9px 12px', color: C.purple, fontWeight: 700, fontSize: 11 }}>{inv.quotation_id || '—'}</td>
@@ -573,7 +593,7 @@ export default function InvoicesPage() {
                   <td style={{ padding: '9px 12px' }}><Badge label={isOverdue(inv) ? 'Overdue' : inv.status} /></td>
                   <td style={{ padding: '9px 12px' }}>
                     <div style={{ display: 'flex', gap: 6 }}>
-                      <button onClick={() => setShowPrint(inv)} style={{ padding: '4px 10px', fontSize: 10, fontWeight: 700, background: `${C.accent}18`, border: `1px solid ${C.accent}44`, color: C.accent, borderRadius: 4, cursor: 'pointer', fontFamily: 'inherit' }}>View</button>
+                      <button onClick={() => viewInvoice(inv)} style={{ padding: '4px 10px', fontSize: 10, fontWeight: 700, background: `${C.accent}18`, border: `1px solid ${C.accent}44`, color: C.accent, borderRadius: 4, cursor: 'pointer', fontFamily: 'inherit' }}>View</button>
                       {canEdit && <button onClick={() => openEdit(inv)} style={{ padding: '4px 10px', fontSize: 10, fontWeight: 700, background: `${C.blue}18`, border: `1px solid ${C.blue}44`, color: C.blue, borderRadius: 4, cursor: 'pointer', fontFamily: 'inherit' }}>Edit</button>}
                     </div>
                   </td>
