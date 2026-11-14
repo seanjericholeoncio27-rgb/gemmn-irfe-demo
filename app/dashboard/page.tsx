@@ -1,5 +1,6 @@
 'use client'
 import { useEffect, useState, useCallback, useRef } from 'react'
+import { isInvoiceOverdue } from '@/lib/paymentTerms'
 import { QUOTATION_SELECT, INVOICE_COLS } from '@/lib/listColumns'
 import { SkeletonPanel } from '@/components/Skeleton'
 import { createClient } from '@/lib/supabase'
@@ -31,22 +32,7 @@ function grandTotal(sum: number, vat_mode: string | null | undefined) {
 // derived, due-date-based classification computed on the fly (see
 // InvoicesPage's own isOverdue/computeDueDate). Filtering on a literal
 // status==='Overdue' string, as this page used to, can never match anything.
-function computeDueDate(dateStr: string, paymentTerms: string): string | null {
-  if (!dateStr) return null
-  const daysMatch = /(\d+)/.exec(paymentTerms || '')
-  const days = daysMatch ? Number(daysMatch[1]) : 30
-  const d = new Date(dateStr + 'T00:00:00')
-  d.setDate(d.getDate() + days)
-  return d.toISOString().slice(0, 10)
-}
-function isOverdue(inv: any): boolean {
-  if (inv.status === 'Paid' || inv.status === 'Cancelled') return false
-  const due = computeDueDate(inv.date, inv.payment_terms)
-  if (!due) return false
-  const dueDate = new Date(due + 'T00:00:00')
-  dueDate.setDate(dueDate.getDate() + 1)
-  return new Date() >= dueDate
-}
+const isOverdue = (inv: any): boolean => isInvoiceOverdue(inv)
 // Mirrors PayrollPage's calcGross/calcNet exactly.
 function calcGross(emp: any, rec: any) {
   if (!emp) return 0

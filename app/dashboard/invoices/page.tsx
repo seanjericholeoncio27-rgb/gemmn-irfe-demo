@@ -1,5 +1,7 @@
 'use client'
 import { useEffect, useState, useCallback, useRef } from 'react'
+import { computeDueDate, isInvoiceOverdue, dueDateNote } from '@/lib/paymentTerms'
+import PaymentTermsField from '@/components/PaymentTermsField'
 import { INVOICE_COLS } from '@/lib/listColumns'
 import { SkeletonPanel } from '@/components/Skeleton'
 import { createClient } from '@/lib/supabase'
@@ -186,7 +188,7 @@ function printInvoice(doc: any, items: ItemRow[]) {
         <div><span>Date:</span><span>${doc.date || ''}</span></div>
         <div><span>Invoice#:</span><span><b>${doc.id}</b></span></div>
         ${doc.quotation_id ? `<div><span>Ref Quotation:</span><span>${doc.quotation_id}</span></div>` : ''}
-        <div><span>Due Date:</span><span>${computeDueDate(doc.date, doc.payment_terms) || ''}</span></div>
+        <div><span>Due Date:</span><span>${computeDueDate(doc.date, doc.payment_terms, doc.delivery_date) || ''}</span></div>
         <div><span>Status:</span><span><span class="status">${isOverdue(doc) ? 'Overdue' : doc.status}</span></span></div>
         <div><span>Prepared by:</span><span>${doc.prepared_by || ''}</span></div>
       </div>
@@ -244,23 +246,8 @@ const BLANK_FORM = {
   signatory_position: 'CEO/Sales Manager', signature_data: null as string | null
 }
 
-// Due date is always derived from date + payment_terms, never stored/typed directly.
-function computeDueDate(dateStr: string, paymentTerms: string): string | null {
-  if (!dateStr) return null
-  const daysMatch = /(\d+)/.exec(paymentTerms || '')
-  const days = daysMatch ? Number(daysMatch[1]) : 30
-  const d = new Date(dateStr + 'T00:00:00')
-  d.setDate(d.getDate() + days)
-  return d.toISOString().slice(0, 10)
-}
-function isOverdue(inv: any): boolean {
-  if (inv.status === 'Paid' || inv.status === 'Cancelled') return false
-  const due = computeDueDate(inv.date, inv.payment_terms)
-  if (!due) return false
-  const dueDate = new Date(due + 'T00:00:00')
-  dueDate.setDate(dueDate.getDate() + 1) // overdue starts the day AFTER the due date
-  return new Date() >= dueDate
-}
+// Due date is always derived from date + payment_terms (+ delivery date for COD), never stored/typed directly — see lib/paymentTerms.
+const isOverdue = (inv: any): boolean => isInvoiceOverdue(inv)
 
 export default function InvoicesPage() {
   const supabase = createClient()
@@ -588,7 +575,7 @@ export default function InvoicesPage() {
                   <td style={{ padding: '9px 12px', color: C.purple, fontWeight: 700, fontSize: 11 }}>{inv.quotation_id || '—'}</td>
                   <td style={{ padding: '9px 12px', fontWeight: 600 }}>{inv.company_name || inv.client}</td>
                   <td style={{ padding: '9px 12px', color: C.gray }}>{inv.date}</td>
-                  <td style={{ padding: '9px 12px', color: C.gray }}>{computeDueDate(inv.date, inv.payment_terms)}</td>
+                  <td style={{ padding: '9px 12px', color: C.gray }}>{computeDueDate(inv.date, inv.payment_terms, inv.delivery_date)}</td>
                   <td style={{ padding: '9px 12px', fontWeight: 800, color: C.accent }}>{fmt(getInvTotal(inv))}</td>
                   <td style={{ padding: '9px 12px' }}><Badge label={isOverdue(inv) ? 'Overdue' : inv.status} /></td>
                   <td style={{ padding: '9px 12px' }}>
@@ -637,7 +624,7 @@ export default function InvoicesPage() {
                     <div style={{ fontSize: 11, color: C.gray }}>Attn: {showPrint.attention}</div></div>
                   <div><div style={{ fontSize: 10, fontWeight: 800, color: C.gray, letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: 4 }}>Dates</div>
                     <div style={{ fontSize: 12 }}>Issued: {showPrint.date}</div>
-                    <div style={{ fontSize: 12, color: C.gray }}>Due: {computeDueDate(showPrint.date, showPrint.payment_terms)}</div></div>
+                    <div style={{ fontSize: 12, color: C.gray }}>Due: {computeDueDate(showPrint.date, showPrint.payment_terms, showPrint.delivery_date)}</div></div>
                   <div><div style={{ fontSize: 10, fontWeight: 800, color: C.gray, letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: 4 }}>Status</div>
                     <Badge label={isOverdue(showPrint) ? 'Overdue' : showPrint.status} />{showPrint.quotation_id && <div style={{ fontSize: 11, color: C.purple, marginTop: 6, fontWeight: 700 }}>Ref: {showPrint.quotation_id}</div>}</div>
                 </div>
@@ -713,28 +700,8 @@ export default function InvoicesPage() {
                 </div>
                 <div style={{ marginBottom: 14 }}>
                   <label style={{ fontSize: 10, fontWeight: 800, letterSpacing: 1.5, color: C.gray, textTransform: 'uppercase', display: 'block', marginBottom: 5 }}>Payment Terms</label>
-                  {(() => {
-                    const presets = ['15 Days', '30 Days', '60 Days', '90 Days']
-                    const isPreset = presets.includes(form.payment_terms)
-                    const customMatch = /^(\d+)\s*Days$/i.exec(form.payment_terms || '')
-                    const customNum = !isPreset && customMatch ? customMatch[1] : ''
-                    return (
-                      <div style={{ display: 'flex', gap: 8 }}>
-                        <select value={isPreset ? form.payment_terms : 'Other'}
-                          onChange={e => f('payment_terms')(e.target.value === 'Other' ? '' : e.target.value)}
-                          style={{ flex: 1, padding: '9px 12px', border: `1.5px solid ${C.lightGray}`, borderRadius: 6, fontSize: 13, fontFamily: 'inherit', boxSizing: 'border-box' }}>
-                          {presets.map(p => <option key={p} value={p}>{p}</option>)}
-                          <option value="Other">Other…</option>
-                        </select>
-                        {!isPreset && (
-                          <input type="number" value={customNum} onChange={e => f('payment_terms')(e.target.value ? `${e.target.value} Days` : '')}
-                            onFocus={e=>e.target.select()}
-                            placeholder="Days" style={{ width: 90, padding: '9px 12px', border: `1.5px solid ${C.lightGray}`, borderRadius: 6, fontSize: 13, fontFamily: 'inherit', boxSizing: 'border-box' }} />
-                        )}
-                      </div>
-                    )
-                  })()}
-                  {form.date && <div style={{ fontSize: 10, color: C.gray, marginTop: 5 }}>Due: <b style={{ color: C.dark }}>{computeDueDate(form.date, form.payment_terms)}</b> (auto-computed, not editable directly)</div>}
+                  <PaymentTermsField value={form.payment_terms || ''} onChange={f('payment_terms')} inputStyle={{ width: '100%', padding: '9px 12px', border: `1.5px solid ${C.lightGray}`, borderRadius: 6, fontSize: 13, fontFamily: 'inherit', boxSizing: 'border-box' }} />
+                  {form.date && <div style={{ fontSize: 10, color: C.gray, marginTop: 5 }}>Due: <b style={{ color: C.dark }}>{computeDueDate(form.date, form.payment_terms, form.delivery_date)}</b> ({dueDateNote(form.payment_terms, form.delivery_date)}; not editable directly)</div>}
                 </div>
                 <div style={{ marginBottom: 14, gridColumn: '1/-1' }}>
                   <label style={{ fontSize: 10, fontWeight: 800, letterSpacing: 1.5, color: C.gray, textTransform: 'uppercase', display: 'block', marginBottom: 5 }}>Quotation Reference (search to link)</label>

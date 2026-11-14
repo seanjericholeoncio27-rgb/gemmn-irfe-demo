@@ -1,5 +1,6 @@
 'use client'
 import { useEffect, useState, useCallback } from 'react'
+import { isInvoiceOverdue as isInvoiceOverdueShared } from '@/lib/paymentTerms'
 import { QUOTATION_SELECT, INVOICE_SELECT } from '@/lib/listColumns'
 import { SkeletonPanel } from '@/components/Skeleton'
 import { createClient } from '@/lib/supabase'
@@ -22,22 +23,7 @@ const nz = (v:any) => (v === '' || v === undefined) ? null : v
 // Ported from QuotationsPage — only 'item' rows count toward the client-facing
 // total; material sub-rows are reference-only (their cost is already folded
 // into the item's own price via the Cost Builder).
-function computeDueDate(dateStr:string, paymentTerms:string): string | null {
-  if (!dateStr) return null
-  const daysMatch = /(\d+)/.exec(paymentTerms || '')
-  const days = daysMatch ? Number(daysMatch[1]) : 30
-  const d = new Date(dateStr + 'T00:00:00')
-  d.setDate(d.getDate() + days)
-  return d.toISOString().slice(0,10)
-}
-function isInvoiceOverdue(inv:any): boolean {
-  if (inv.status === 'Paid' || inv.status === 'Cancelled') return false
-  const due = computeDueDate(inv.date, inv.payment_terms)
-  if (!due) return false
-  const dueDate = new Date(due + 'T00:00:00')
-  dueDate.setDate(dueDate.getDate() + 1)
-  return new Date() >= dueDate
-}
+const isInvoiceOverdue = (inv:any): boolean => isInvoiceOverdueShared(inv)
 
 function quotationTotal(q:any) {
   const items = q.quotation_items || []
@@ -1546,7 +1532,7 @@ export default function ProjectsPage(){
                 </div>
                 <Field label="Invoice Date" type="date" value={newInvForm.date} onChange={(v:string)=>setNewInvForm(p=>({...p,date:v}))} />
               </div>
-              <Field label="Payment Terms" type="select" value={newInvForm.payment_terms} onChange={(v:string)=>setNewInvForm(p=>({...p,payment_terms:v}))} options={['15 Days','30 Days','60 Days','90 Days']} />
+              <Field label="Payment Terms" type="select" value={newInvForm.payment_terms} onChange={(v:string)=>setNewInvForm(p=>({...p,payment_terms:v}))} options={['15 Days','30 Days','60 Days','90 Days','COD']} />
               <Field label="DR Number (Delivery Receipt) — marks this as received by the client" value={newInvForm.dr_number} onChange={(v:string)=>setNewInvForm(p=>({...p,dr_number:v}))} placeholder="Optional — enter if delivering now" span skipDefault/>
 
               <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: 1.5, color: C.gray, textTransform: 'uppercase', margin:'14px 0 8px' }}>Lines With Remaining Quantity</div>

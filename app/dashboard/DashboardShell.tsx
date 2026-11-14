@@ -1,5 +1,6 @@
 'use client'
 import { useState, useEffect } from 'react'
+import { isInvoiceOverdue } from '@/lib/paymentTerms'
 import { usePathname, useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase'
 import { usePermissions } from '@/lib/permissions'
@@ -139,7 +140,7 @@ export default function DashboardShell({ children, profile }: { children: React.
     const soonStr = soon.toISOString().slice(0, 10)
 
     const [{ data: overdueInv }, { data: lowStock }, { data: pendingQuotes }, { data: expiringQuo }, { data: pendingApproval }, { data: approvedReqs }, { data: poItemReqs }, { data: quoWithPo }] = await Promise.all([
-      supabase.from('invoices').select('id, client, date, payment_terms').neq('status', 'Paid'),
+      supabase.from('invoices').select('id, client, date, payment_terms, delivery_date, status').neq('status', 'Paid'),
       supabase.from('inventory').select('id, name, quantity, min_stock'),
       supabase.from('material_requests').select('id, material_name, status').eq('status', 'Pending Quotes'),
       supabase.from('quotations').select('id, valid_until').eq('status', 'Sent').lte('valid_until', soonStr),
@@ -154,9 +155,7 @@ export default function DashboardShell({ children, profile }: { children: React.
     // Each alert is only shown to users who can open the module it points to
     const seeInv = canSee('invoices'), seeInventory = canSee('inventory'), seePurch = canSee('purchasing'), seeQuo = canSee('quotations')
     ;(seeInv ? (overdueInv || []) : []).forEach((inv: any) => {
-      const days = Number((inv.payment_terms || '30 Days').match(/\d+/)?.[0] || 30)
-      const due = new Date(inv.date); due.setDate(due.getDate() + days)
-      if (due < new Date()) items.push({ type: 'Overdue Invoice', text: `${inv.id} — ${inv.client}`, href: '/dashboard/invoices', color: C.red })
+      if (isInvoiceOverdue(inv)) items.push({ type: 'Overdue Invoice', text: `${inv.id} — ${inv.client}`, href: '/dashboard/invoices', color: C.red })
     })
     ;(seeInventory ? (lowStock || []) : []).forEach((i: any) => {
       if (i.min_stock > 0 && i.quantity < i.min_stock) items.push({ type: 'Low Stock', text: `${i.name} — ${i.quantity} left (min ${i.min_stock})`, href: '/dashboard/inventory', color: C.amber })

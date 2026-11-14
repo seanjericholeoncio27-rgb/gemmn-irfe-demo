@@ -1,5 +1,6 @@
 'use client'
 import { useEffect, useState, useCallback, useRef } from 'react'
+import PaymentTermsField from '@/components/PaymentTermsField'
 import { SkeletonPanel } from '@/components/Skeleton'
 import { createClient } from '@/lib/supabase'
 import { fetchAll as fetchAllPages } from '@/lib/fetchAll'
@@ -1589,26 +1590,7 @@ export default function QuotationsPage() {
                 </div>
                 <div style={{ marginBottom: 14 }}>
                   <label style={{ fontSize: 10, fontWeight: 800, letterSpacing: 1.5, color: C.gray, textTransform: 'uppercase', display: 'block', marginBottom: 5 }}>Payment Terms</label>
-                  {(() => {
-                    const presets = ['30 Days', '60 Days', '90 Days']
-                    const isPreset = presets.includes(form.payment_terms)
-                    const customMatch = /^(\d+)\s*Days$/i.exec(form.payment_terms || '')
-                    const customNum = !isPreset && customMatch ? customMatch[1] : ''
-                    return (
-                      <>
-                        <select value={isPreset ? form.payment_terms : 'Other'}
-                          onChange={e => f('payment_terms')(e.target.value === 'Other' ? '' : e.target.value)}
-                          style={{ width: '100%', padding: '9px 12px', border: `1.5px solid ${C.lightGray}`, borderRadius: 6, fontSize: 13, fontFamily: 'inherit', boxSizing: 'border-box' }}>
-                          {presets.map(p => <option key={p} value={p}>{p}</option>)}
-                          <option value="Other">Other</option>
-                        </select>
-                        {!isPreset && (
-                          <input type="number" value={customNum} onFocus={e => e.target.select()} onChange={e => f('payment_terms')(e.target.value ? `${e.target.value} Days` : '')}
-                            placeholder="Number of days" style={{ width: '100%', padding: '9px 12px', border: `1.5px solid ${C.lightGray}`, borderRadius: 6, fontSize: 13, fontFamily: 'inherit', boxSizing: 'border-box', marginTop: 6 }} />
-                        )}
-                      </>
-                    )
-                  })()}
+                  <PaymentTermsField value={form.payment_terms || ''} onChange={f('payment_terms')} inputStyle={{ width: '100%', padding: '9px 12px', border: `1.5px solid ${C.lightGray}`, borderRadius: 6, fontSize: 13, fontFamily: 'inherit', boxSizing: 'border-box' }} />
                 </div>
                 {/* PO Number moved below Status — see status button group */}
                 <div style={{ marginBottom: 14 }}>
