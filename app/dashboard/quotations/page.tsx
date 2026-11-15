@@ -1,5 +1,5 @@
 'use client'
-import { useEffect, useState, useCallback, useRef } from 'react'
+import React, { useEffect, useState, useCallback, useRef } from 'react'
 import PaymentTermsField from '@/components/PaymentTermsField'
 import { SkeletonPanel } from '@/components/Skeleton'
 import { createClient } from '@/lib/supabase'
@@ -191,7 +191,7 @@ function printQuotation(doc: any, items: ItemRow[]) {
   const { vatable, vat, grand, discountAmount } = calcTotalsWithDiscount(items, doc)
   let itemNo = 0
   // Matches the physical GEMMN quotation sheet: plain heading line ("FABRICATION OF"),
-  // bold large item name, then a bold-italic "MATERIAL:" subheading over italic material lines.
+  // bold large item name, then a bold "MATERIALS:" subheading over italic material lines.
   let materialHeadShown = false
   const headingRow = (text: string) => `<tr><td></td><td colspan="5" style="padding:7px 12px 2px;font-size:13px;font-weight:400">${text}</td></tr>`
   const rowsHtml = items.map((it) => {
@@ -212,7 +212,7 @@ function printQuotation(doc: any, items: ItemRow[]) {
       // and even then, only the description prints. Dimension never appears
       // on the customer-facing copy, by design, to protect pricing/specs.
       if (!it.show_on_export) return ''
-      const head = materialHeadShown ? '' : `<tr><td></td><td colspan="5" style="padding:3px 12px 0 40px;font-size:10px;font-weight:700;font-style:italic">MATERIAL:</td></tr>`
+      const head = materialHeadShown ? '' : `<tr><td></td><td colspan="5" style="padding:4px 12px 1px 40px;font-size:11px;font-weight:800">MATERIALS:</td></tr>`
       materialHeadShown = true
       return head + `<tr><td></td><td colspan="5" style="padding:0 12px 1px 40px;font-size:10px;font-style:italic;line-height:1.25">${it.description || ''}</td></tr>`
     }
@@ -423,6 +423,37 @@ export default function QuotationsPage() {
     const { error } = await supabase.from('company_contacts').delete().eq('id', c.id)
     if (error) { alert(error.message); return }
     await fetchReference()
+  }
+  // Edit a contact person straight from the quotation's Attention field. Works for any
+  // client: a saved contact is updated in the directory; a name typed on an older
+  // quotation that was never saved is added to the directory when you save.
+  const [editAttn, setEditAttn] = useState<{ line: number; id: string | null; original: string } | null>(null)
+  const [attnForm, setAttnForm] = useState({ contact_name: '', position: '', phone: '', email: '' })
+  const [attnSaving, setAttnSaving] = useState(false)
+  const openEditAttention = (line: number, name: string) => {
+    const existing = companyContacts.find(c => c.company_name === form.company_name && c.contact_name === name)
+    setAttnForm({ contact_name: name, position: existing?.position || '', phone: existing?.phone || '', email: existing?.email || '' })
+    setEditAttn({ line, id: existing?.id || null, original: name })
+  }
+  const saveEditAttention = async () => {
+    if (!editAttn) return
+    const name = attnForm.contact_name.trim()
+    if (!name) return alert('Contact name is required.')
+    if (!form.company_name?.trim()) return alert('Enter a Company Name first.')
+    setAttnSaving(true)
+    const payload = { contact_name: name, position: attnForm.position.trim() || null, phone: attnForm.phone.trim() || null, email: attnForm.email.trim() || null }
+    const { error } = editAttn.id
+      ? await supabase.from('company_contacts').update(payload).eq('id', editAttn.id)
+      : await supabase.from('company_contacts').insert({ ...payload, company_name: form.company_name.trim() })
+    setAttnSaving(false)
+    if (error) { alert(error.message); return }
+    await fetchReference()
+    setForm((p: any) => {
+      const lines = (p.attention || '').split('\n')
+      if (lines[editAttn.line] !== undefined) lines[editAttn.line] = name
+      return { ...p, attention: lines.join('\n') }
+    })
+    setEditAttn(null)
   }
   const [showAddContact, setShowAddContact] = useState(false)
   const [addContactForLine, setAddContactForLine] = useState<number>(0)
@@ -1492,12 +1523,14 @@ export default function QuotationsPage() {
                 </tr></thead>
                 <tbody>{sorted.map((it: any, i: number) => {
                   if (it.kind === 'image') return <tr key={i}><td colSpan={6} style={{ padding: 10, textAlign: 'center' }}><img src={it.image_data} style={{ maxWidth: `min(100%, ${Math.round(260 * (Number(it.image_scale) || 100) / 100)}px)`, maxHeight: Math.round(180 * (Number(it.image_scale) || 100) / 100), borderRadius: 6, border: `1px solid ${C.lightGray}` }} /></td></tr>
-                  if (it.kind === 'material') return <tr key={i} style={{ background: '#fbfdfb' }}>
+                  if (it.kind === 'material') return <React.Fragment key={i}>
+                    {sorted[i - 1]?.kind !== 'material' && <tr style={{ background: '#fbfdfb' }}><td></td><td colSpan={5} style={{ padding: '6px 12px 0 26px', fontWeight: 800, fontSize: 11, color: C.dark }}>MATERIALS:</td></tr>}
+                    <tr style={{ background: '#fbfdfb' }}>
                     <td></td><td style={{ padding: '5px 12px 5px 26px', fontStyle: 'italic', color: C.gray, fontSize: 11 }}>
                       {it.description}{it.dimension && <span style={{ color: C.blue }}> — {it.dimension}</span>}
                       {it.show_on_export && <span style={{ marginLeft: 8, fontSize: 9, fontWeight: 700, color: C.accent }}>✓ on export</span>}
                     </td>
-                    <td></td><td></td><td></td><td></td></tr>
+                    <td></td><td></td><td></td><td></td></tr></React.Fragment>
                   if (it.kind === 'note') return <tr key={i}><td></td><td colSpan={5} style={{ padding: '2px 12px 2px 40px', fontSize: 10, color: C.gray, whiteSpace: 'pre-line' }}>{it.description}</td></tr>
                   if (it.kind === 'scope') return <tr key={i} style={{ borderBottom: `1px solid ${C.lightGray}` }}><td></td><td colSpan={5} style={{ padding: '8px 12px', fontWeight: 800, textTransform: 'uppercase' }}>{it.description}</td></tr>
                   const headingOnly = !(Number(it.qty) > 0) && !(Number(it.price) > 0)
@@ -1703,6 +1736,9 @@ export default function QuotationsPage() {
                               {contactsForCompany.map(c => <option key={c.id} value={c.contact_name}>{c.contact_name}</option>)}
                               <option value="__new__">+ Add new contact person…</option>
                             </select>
+                            {line && canEdit && (
+                              <button type="button" title="Edit this contact person" onClick={() => openEditAttention(i, line)} style={{ background: `${C.blue}18`, border: `1px solid ${C.blue}44`, color: C.blue, borderRadius: 6, padding: '0 12px', cursor: 'pointer', fontWeight: 800, fontSize: 11 }}>✎ Edit</button>
+                            )}
                             {(lines.length > 1 || line) && (
                               <button type="button" onClick={() => removeLine(i)} style={{ background: `${C.red}18`, border: `1px solid ${C.red}44`, color: C.red, borderRadius: 6, padding: '0 12px', cursor: 'pointer', fontWeight: 900 }}>✕</button>
                             )}
@@ -2456,6 +2492,32 @@ export default function QuotationsPage() {
               <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
                 <button onClick={() => setShowAddSignatory(false)} style={{ padding: '9px 18px', fontSize: 11, fontWeight: 800, border: `2px solid ${C.gray}`, background: 'transparent', color: C.gray, borderRadius: 6, cursor: 'pointer', textTransform: 'uppercase' }}>Cancel</button>
                 <button onClick={saveNewSignatory} disabled={!newSignatoryForm.name.trim() || !newSignatoryForm.position.trim()} style={{ padding: '9px 22px', fontSize: 11, fontWeight: 800, background: `linear-gradient(135deg,${C.accent},${C.midGreen})`, border: 'none', color: C.white, borderRadius: 6, cursor: 'pointer', textTransform: 'uppercase' }}>Save Person</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── EDIT CONTACT PERSON (from the Attention field) ── */}
+      {editAttn && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+          <div style={{ background: C.white, borderRadius: 14, width: '100%', maxWidth: 440, boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }}>
+            <div style={{ background: `linear-gradient(135deg,${C.dark},${C.darkGreen})`, padding: '16px 22px', borderRadius: '14px 14px 0 0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div><div style={{ color: C.accent, fontSize: 10, fontWeight: 700, letterSpacing: 2 }}>CONTACT PERSON</div>
+                <div style={{ color: C.white, fontSize: 15, fontWeight: 900 }}>{form.company_name}</div></div>
+              <button onClick={() => setEditAttn(null)} style={{ background: 'rgba(255,255,255,0.1)', border: 'none', color: C.white, width: 30, height: 30, borderRadius: '50%', cursor: 'pointer', fontSize: 15 }}>✕</button>
+            </div>
+            <div style={{ padding: 22 }}>
+              {([['contact_name', 'Name', 'Mr./Ms. …'], ['position', 'Position', 'Position'], ['phone', 'Phone', 'Phone'], ['email', 'Email', 'Email']] as const).map(([k, label, ph]) => (
+                <div key={k} style={{ marginBottom: 12 }}>
+                  <label style={{ fontSize: 10, fontWeight: 800, letterSpacing: 1.5, color: C.gray, textTransform: 'uppercase', display: 'block', marginBottom: 5 }}>{label}</label>
+                  <input value={attnForm[k]} placeholder={ph} autoFocus={k === 'contact_name'} onChange={e => setAttnForm(p => ({ ...p, [k]: e.target.value }))} style={{ width: '100%', padding: '9px 12px', border: `1.5px solid ${C.lightGray}`, borderRadius: 6, fontSize: 13, boxSizing: 'border-box', fontFamily: 'inherit' }} />
+                </div>
+              ))}
+              <div style={{ fontSize: 10, color: C.gray, marginBottom: 14 }}>{editAttn.id ? 'Updates this person in the Company Directory. Quotations already issued keep the name they printed with.' : 'This name was typed on the quotation and is not in the Company Directory yet — saving adds it.'}</div>
+              <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+                <button onClick={() => setEditAttn(null)} style={{ padding: '9px 18px', fontSize: 11, fontWeight: 800, border: `2px solid ${C.gray}`, background: 'transparent', color: C.gray, borderRadius: 8, cursor: 'pointer' }}>CANCEL</button>
+                <button onClick={saveEditAttention} disabled={attnSaving || !attnForm.contact_name.trim()} style={{ padding: '9px 22px', fontSize: 11, fontWeight: 800, background: `linear-gradient(135deg,${C.accent},${C.midGreen})`, color: C.white, border: 'none', borderRadius: 8, cursor: 'pointer', opacity: attnSaving || !attnForm.contact_name.trim() ? 0.6 : 1 }}>{attnSaving ? 'SAVING…' : 'SAVE'}</button>
               </div>
             </div>
           </div>

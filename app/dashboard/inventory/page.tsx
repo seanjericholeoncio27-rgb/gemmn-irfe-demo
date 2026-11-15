@@ -88,8 +88,26 @@ export default function InventoryPage(){
   const [activeProjects,setActiveProjects]=useState<any[]>([])
   useEffect(()=>{
     supabase.from('employees').select('id,name').eq('status','Active').order('name').then(({data})=>setEmployees(data||[]))
-    supabase.from('projects').select('po_number,name,client').not('po_number','is',null).order('po_number').then(({data})=>setActiveProjects(data||[]))
+    supabase.from('projects').select('po_number,name,client,quotation_id').not('po_number','is',null).order('po_number').then(({data})=>setActiveProjects(data||[]))
+    supabase.from('client_registry').select('id,company_name').then(({data})=>setClientCodes(data||[]))
   },[])
+  // Short client code for a project (e.g. "CBC") so PO dropdown labels stay short:
+  // the Client Registry code matching the project's client, else the quotation-number prefix, else initials.
+  const [clientCodes,setClientCodes]=useState<any[]>([])
+  const clientCodeFor=(p:any)=>{
+    const name=String(p.client||'').trim().toLowerCase()
+    const hit=clientCodes.find((c:any)=>String(c.company_name||'').trim().toLowerCase()===name)
+    if(hit?.id) return String(hit.id).toUpperCase()
+    const pre=/^([A-Za-z]+)-/.exec(String(p.quotation_id||''))
+    if(pre) return pre[1].toUpperCase()
+    const words=String(p.client||'').split(/\s+/).filter(Boolean)
+    return words.length ? words.map((w:string)=>w[0]).join('').toUpperCase().slice(0,6) : ''
+  }
+  const poLabel=(p:any)=>{
+    const desc=String(p.name||'').replace(/\s+/g,' ').trim()
+    const short=desc.length>60?desc.slice(0,57)+'…':desc
+    return [p.po_number,clientCodeFor(p),short].filter(Boolean).join(' — ')
+  }
 
   // ── Receiving — the Tool Keeper checks in stock here; it reconciles
   // straight against Purchasing's open supplier POs rather than being a
@@ -398,7 +416,10 @@ export default function InventoryPage(){
     return bd.localeCompare(ad)
   }
 
-  const filtered=items.filter(i=>i.name.toLowerCase().includes(search.toLowerCase())||i.supplier?.toLowerCase().includes(search.toLowerCase())).filter(i=>catFilter==='All'||((i.category&&i.category.trim())||'UNCATEGORIZED')===catFilter).slice().sort(byRecency)
+  // Materials are listed A→Z (case-insensitive, numbers in natural order: "Pipe 2in" before "Pipe 10in")
+  const byName = (a:any,b:any) => String(a.name||'').localeCompare(String(b.name||''),undefined,{numeric:true,sensitivity:'base'})
+  const itemsAZ = items.slice().sort(byName)
+  const filtered=items.filter(i=>i.name.toLowerCase().includes(search.toLowerCase())||i.supplier?.toLowerCase().includes(search.toLowerCase())).filter(i=>catFilter==='All'||((i.category&&i.category.trim())||'UNCATEGORIZED')===catFilter).slice().sort(byName)
   const critical=items.filter(i=>i.quantity<i.min_stock*0.6)
   const low=items.filter(i=>i.quantity>=i.min_stock*0.6&&i.quantity<i.min_stock)
 
@@ -645,13 +666,13 @@ export default function InventoryPage(){
                   <label style={{fontSize:10,fontWeight:800,letterSpacing:1.5,color:C.gray,textTransform:'uppercase',display:'block',marginBottom:5}}>Material</label>
                   <select value={relForm.material_id} onChange={e=>{setRelForm(p=>({...p,material_id:e.target.value})); setRelUseExcess(null)}} style={inputStyle}>
                     <option value="">Select material…</option>
-                    {items.map(i=><option key={i.id} value={i.id}>{i.name} ({i.quantity} {i.unit} in stock)</option>)}
+                    {itemsAZ.map(i=><option key={i.id} value={i.id}>{i.name} ({i.quantity} {i.unit} in stock)</option>)}
                   </select>
                 </div>
                 <Field label="Qty" type="number" value={relForm.qty} onChange={(v:any)=>setRelForm(p=>({...p,qty:v}))}/>
                 <Field label="Date" type="date" value={relForm.date} onChange={(v:any)=>setRelForm(p=>({...p,date:v}))}/>
                 <Field label="Requestor" type="select" value={relForm.requestor} onChange={(v:any)=>setRelForm(p=>({...p,requestor:v}))} options={employees.map(e=>({value:e.name, label:e.name}))}/>
-                <Field label="Project / PO Number" type="select" value={relForm.po_number} onChange={(v:any)=>setRelForm(p=>({...p,po_number:v}))} options={activeProjects.map(p=>({value:p.po_number, label:`${p.po_number} — ${p.client||p.name}`}))}/>
+                <Field label="Project / PO Number" type="select" value={relForm.po_number} onChange={(v:any)=>setRelForm(p=>({...p,po_number:v}))} options={activeProjects.map(p=>({value:p.po_number, label:poLabel(p)}))}/>
                 <Field label="Notes" value={relForm.notes} onChange={(v:any)=>setRelForm(p=>({...p,notes:v}))} placeholder="Optional"/>
               </div>
               {relForm.po_number && relForm.material_id && (
@@ -834,7 +855,7 @@ export default function InventoryPage(){
                                   <select value={receivingForm[item.id]?.material_id ?? (items.find(i=>materialKey(i.name)===materialKey(item.material_name))?.id||'')} onChange={e=>setReceivingForm(p=>({...p,[item.id]:{...p[item.id],material_id:e.target.value}}))} style={{width:'100%',padding:'7px 9px',border:`1.5px solid ${C.lightGray}`,borderRadius:6,fontSize:12,boxSizing:'border-box'}}>
                                     <option value="">Select…</option>
                                     <option value="__new__" style={{fontWeight:700,color:C.amber}}>+ Register New Material</option>
-                                    {items.map(i=><option key={i.id} value={i.id}>{i.name}</option>)}
+                                    {itemsAZ.map(i=><option key={i.id} value={i.id}>{i.name}</option>)}
                                   </select>
                                 </div>
                                 <div>
