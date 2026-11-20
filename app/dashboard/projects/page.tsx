@@ -257,14 +257,16 @@ export default function ProjectsPage(){
     setPoQuotationsAll(data||[])
   },[supabase])
   const currentPoQuotations = poQuotationsAll.filter(q=>q.status!=='Superseded')
-  const bomNeedsSync = bomRows.some(r => r.source_quotation_id && poQuotationsAll.find(q=>q.id===r.source_quotation_id)?.status==='Superseded')
+  const bomMissingQuotes = currentPoQuotations.filter(q => (q.quotation_items||[]).some((it:any)=>it.kind==='item') && !bomRows.some(r=>r.source_quotation_id===q.id))
+  const bomNeedsSync = bomMissingQuotes.length>0 || bomRows.some(r => r.source_quotation_id && poQuotationsAll.find(q=>q.id===r.source_quotation_id)?.status==='Superseded')
 
   const syncBomWithLatestVersions = async (po:string) => {
     if (!window.confirm('Sync the BOM with the latest quotation version(s)? Prices/quantities update to match; anything already purchased or released stays untouched.')) return
     const currentLineUids = new Set<string>()
     const inserts:any[] = []
     for (const q of currentPoQuotations) {
-      for (const m of (q.quotation_items||[]).filter((it:any)=>it.kind==='material')) {
+      for (const { item, materials } of itemLinesWithMaterials(q)) {
+       for (const m of (materials.length>0 ? materials : [item])) {
         if (!m.line_uid) continue
         currentLineUids.add(m.line_uid)
         const existing = bomRows.find(r=>r.source_line_uid===m.line_uid)
@@ -281,6 +283,7 @@ export default function ProjectsPage(){
             qty_needed: Number(m.qty)||0, unit: m.unit||'', estimated_unit_cost: Number(m.price)||0,
           })
         }
+       }
       }
     }
     // Lines that came from a quotation but no longer appear in any current
@@ -619,7 +622,10 @@ export default function ProjectsPage(){
             po_number: po, quotation_id: q.id, item_line_uid: item.line_uid,
             description: item.description, quoted_qty: quotedQty, po_qty: poQty,
           })
-          materials.forEach(m => {
+          // An item with no material sub-lines still needs a BOM entry, otherwise
+          // quotations sharing this PO vanish from the BOM. Use the item itself.
+          const bomSrc = materials.length > 0 ? materials : [item]
+          bomSrc.forEach(m => {
             bomInserts.push({
               po_number: po, source_quotation_id: q.id, source_line_uid: m.line_uid || null,
               description: m.description || '', dimension: m.dimension || '',
@@ -782,7 +788,10 @@ export default function ProjectsPage(){
             po_number: po, quotation_id: q.id, item_line_uid: item.line_uid,
             description: item.description, quoted_qty: quotedQty, po_qty: poQty,
           })
-          materials.forEach(m => {
+          // An item with no material sub-lines still needs a BOM entry, otherwise
+          // quotations sharing this PO vanish from the BOM. Use the item itself.
+          const bomSrc = materials.length > 0 ? materials : [item]
+          bomSrc.forEach(m => {
             bomInserts.push({
               po_number: po, source_quotation_id: q.id, source_line_uid: m.line_uid || null,
               description: m.description || '', dimension: m.dimension || '',
@@ -1222,7 +1231,7 @@ export default function ProjectsPage(){
                   </div>
                   {bomNeedsSync && (
                     <div style={{ background:`${C.amber}12`, border:`1px solid ${C.amber}44`, borderRadius:8, padding:'10px 14px', marginBottom:12, display:'flex', justifyContent:'space-between', alignItems:'center', gap:10, flexWrap:'wrap' }}>
-                      <span style={{ fontSize:11, color:C.amber }}>⚠ A newer version of one or more linked quotations is available — this BOM may be outdated.</span>
+                      <span style={{ fontSize:11, color:C.amber }}>⚠ This BOM is outdated or missing lines from a linked quotation ({bomMissingQuotes.length>0 ? bomMissingQuotes.map(q=>q.id).join(', ')+' not in BOM' : 'newer version available'}) — sync to update.</span>
                       {canEdit && <button type="button" onClick={()=>syncBomWithLatestVersions(form.po_number)} style={{ padding:'6px 14px', fontSize:10, fontWeight:800, color:C.white, background:C.amber, border:'none', borderRadius:6, cursor:'pointer', whiteSpace:'nowrap' }}>🔄 Sync BOM Now</button>}
                     </div>
                   )}
@@ -1236,6 +1245,7 @@ export default function ProjectsPage(){
                         if (!g) { g = { key, quotation: currentPoQuotations.find(q=>q.id===r.source_quotation_id) || poQuotationsAll.find(q=>q.id===r.source_quotation_id) || null, rows: [] }; groups.push(g) }
                         g.rows.push(r)
                       })
+                      currentPoQuotations.forEach(q => { if (!groups.find(g=>g.key===q.id)) groups.push({ key:q.id, quotation:q, rows:[] }) })
                       return (
                         <div style={{ marginBottom: 14 }}>
                           {groups.map(g => (
@@ -1251,6 +1261,7 @@ export default function ProjectsPage(){
                                   </>
                                 )}
                               </div>
+                              {g.rows.length===0 && <div style={{ fontSize:10, color:C.gray, fontStyle:'italic' }}>No lines yet for this quotation — sync the BOM or add one manually.</div>}
                               {g.rows.map(r => (
                           <div key={r.id} style={{ border:`1px solid ${r.status_note?C.amber:C.lightGray}`, borderRadius: 8, padding:'10px 12px', marginBottom:8 }}>
                             {r.status_note && <div style={{ fontSize:9, fontWeight:700, color:C.amber, marginBottom:6 }}>⚠ {r.status_note}</div>}
