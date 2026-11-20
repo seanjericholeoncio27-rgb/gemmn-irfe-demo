@@ -558,10 +558,16 @@ export default function ProjectsPage(){
   const autoProjectName = (quotes: any[]) => {
     const lines = quotes.flatMap(q => (q.quotation_items || []).slice().sort((a: any, b: any) => (a.position || 0) - (b.position || 0)).filter((i: any) => i.kind === 'item' && (i.description || '').trim()))
     if (lines.length === 0) return ''
-    let base = String(lines[0].description).replace(/\s+/g, ' ').trim()
-    if (base.length > 80) base = base.slice(0, 77).trimEnd() + '…'
-    const n = lines.length - 1
-    return n > 0 ? `${base} (+ ${n} other item${n === 1 ? '' : 's'})` : base
+    // Full name lists every item (stored); the project card shortens it to "first (+ n other items)".
+    const names:string[] = []
+    lines.forEach((l:any) => { const d = String(l.description).replace(/\s+/g, ' ').replace(/\|/g,'/').trim(); if (!names.includes(d)) names.push(d) })
+    return names.join(' | ')
+  }
+  const cardName = (name:string) => {
+    const parts = String(name||'').split(' | ')
+    if (parts.length < 2) return name
+    const n = parts.length - 1
+    return `${parts[0]} (+ ${n} other item${n === 1 ? '' : 's'})`
   }
   const autoNameForSelection = autoProjectName(availableQuotations.filter(q => selectedQuoIds.includes(q.id)))
   const effectiveProjectName = poForm.project_name.trim() || autoNameForSelection
@@ -1055,7 +1061,7 @@ export default function ProjectsPage(){
                   <span style={{ fontSize: 10, fontWeight: 800, color: C.accent, letterSpacing: 1 }}>{p.id}</span>
                   <Badge label={p.status}/>
                 </div>
-                <div style={{ fontWeight: 900, fontSize: 16, textTransform: 'uppercase' }}>{p.name}</div>
+                <div style={{ fontWeight: 900, fontSize: 16, textTransform: 'uppercase' }}>{cardName(p.name)}</div>
               </div>
 
               <div style={{ padding: '20px' }}>
