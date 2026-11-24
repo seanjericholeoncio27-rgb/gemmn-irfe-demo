@@ -427,6 +427,32 @@ export default function QuotationsPage() {
   // Edit a contact person straight from the quotation's Attention field. Works for any
   // client: a saved contact is updated in the directory; a name typed on an older
   // quotation that was never saved is added to the directory when you save.
+  // ── Labor rates (Lead Time Table) — user-editable ──
+  const [laborMgrOpen, setLaborMgrOpen] = useState(false)
+  const [laborErr, setLaborErr] = useState('')
+  const [newLabor, setNewLabor] = useState({ name: '', rate: '' })
+  const saveLaborType = async (t: any, patch: { name?: string; rate_per_hour?: number }) => {
+    setLaborErr('')
+    const { error } = await supabase.from('labor_types').update(patch).eq('id', t.id)
+    if (error) { setLaborErr(error.message); return }
+    setLaborTypes(p => p.map(x => x.id === t.id ? { ...x, ...patch } : x).sort((a, b) => String(a.name).localeCompare(String(b.name))))
+  }
+  const addLaborType = async () => {
+    setLaborErr('')
+    const name = newLabor.name.trim().toUpperCase(); const rate = Number(newLabor.rate)
+    if (!name) return setLaborErr('Enter a process name.')
+    if (!(rate >= 0) || newLabor.rate.trim() === '') return setLaborErr('Enter a valid hourly rate.')
+    const { data, error } = await supabase.from('labor_types').insert({ name, rate_per_hour: rate }).select().single()
+    if (error) { setLaborErr(error.message.includes('duplicate') ? `"${name}" already exists.` : error.message); return }
+    setLaborTypes(p => [...p, data].sort((a, b) => String(a.name).localeCompare(String(b.name))))
+    setNewLabor({ name: '', rate: '' })
+  }
+  const deleteLaborType = async (t: any) => {
+    if (!window.confirm(`Remove "${t.name}" from the labor list? Saved quotations keep their own rates.`)) return
+    const { error } = await supabase.from('labor_types').delete().eq('id', t.id)
+    if (error) { setLaborErr(error.message); return }
+    setLaborTypes(p => p.filter(x => x.id !== t.id))
+  }
   const [editAttn, setEditAttn] = useState<{ line: number; id: string | null; original: string } | null>(null)
   const [attnForm, setAttnForm] = useState({ contact_name: '', position: '', phone: '', email: '' })
   const [attnSaving, setAttnSaving] = useState(false)
@@ -1976,7 +2002,10 @@ export default function QuotationsPage() {
                             </div>
                           </div>
 
-                          <div style={{ fontSize: 10, fontWeight: 800, color: C.gray, textTransform: 'uppercase', marginBottom: 6 }}>Labor (Lead Time Table)</div>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                            <div style={{ fontSize: 10, fontWeight: 800, color: C.gray, textTransform: 'uppercase' }}>Labor (Lead Time Table)</div>
+                            {canEdit && <button type="button" onClick={() => { setLaborErr(''); setLaborMgrOpen(true) }} style={{ fontSize: 10, fontWeight: 700, color: C.blue, background: 'none', border: 'none', cursor: 'pointer' }}>⚙ Manage rates</button>}
+                          </div>
                           <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr 1fr auto', gap: 6, marginBottom: 4, padding: '0 8px' }}>
                             {['Process', 'Hr/s', 'Unit', 'Rate', 'Amount', ''].map(h => <span key={h} style={{ fontSize: 9, fontWeight: 700, color: C.gray, textTransform: 'uppercase' }}>{h}</span>)}
                           </div>
@@ -2499,6 +2528,33 @@ export default function QuotationsPage() {
       )}
 
       {/* ── EDIT CONTACT PERSON (from the Attention field) ── */}
+      {laborMgrOpen && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1300, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+          <div style={{ background: C.white, borderRadius: 14, width: '100%', maxWidth: 480, maxHeight: '90vh', display: 'flex', flexDirection: 'column', boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }}>
+            <div style={{ background: `linear-gradient(135deg,${C.dark},${C.darkGreen})`, padding: '16px 22px', borderRadius: '14px 14px 0 0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div><div style={{ color: C.accent, fontSize: 10, fontWeight: 700, letterSpacing: 2 }}>LEAD TIME TABLE</div>
+                <div style={{ color: C.white, fontSize: 15, fontWeight: 900 }}>Labor Rates (₱ / hour)</div></div>
+              <button onClick={() => setLaborMgrOpen(false)} style={{ background: 'rgba(255,255,255,0.1)', border: 'none', color: C.white, width: 30, height: 30, borderRadius: '50%', cursor: 'pointer', fontSize: 15 }}>✕</button>
+            </div>
+            <div style={{ padding: 22, overflowY: 'auto' }}>
+              <div style={{ fontSize: 10, color: C.gray, marginBottom: 12 }}>Changes apply to new Cost Builder lines. Quotations already built keep the rate they were saved with.</div>
+              {laborTypes.map(t => (
+                <div key={t.id} style={{ display: 'grid', gridTemplateColumns: '2fr 1fr auto', gap: 6, marginBottom: 8 }}>
+                  <input defaultValue={t.name} onBlur={e => { const v = e.target.value.trim().toUpperCase(); if (v && v !== t.name) saveLaborType(t, { name: v }); else e.target.value = t.name }} style={{ padding: '8px 10px', border: `1.5px solid ${C.lightGray}`, borderRadius: 6, fontSize: 12, fontFamily: 'inherit' }} />
+                  <input type="number" min="0" step="any" defaultValue={t.rate_per_hour} onFocus={e => e.target.select()} onBlur={e => { const v = Number(e.target.value); if (e.target.value.trim() !== '' && v >= 0 && v !== Number(t.rate_per_hour)) saveLaborType(t, { rate_per_hour: v }); else e.target.value = String(t.rate_per_hour) }} style={{ padding: '8px 10px', border: `1.5px solid ${C.lightGray}`, borderRadius: 6, fontSize: 12, fontFamily: 'inherit' }} />
+                  <button onClick={() => deleteLaborType(t)} style={{ background: `${C.red}18`, border: `1px solid ${C.red}44`, color: C.red, borderRadius: 6, cursor: 'pointer', fontSize: 11 }}>✕</button>
+                </div>
+              ))}
+              <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr auto', gap: 6, marginTop: 14, paddingTop: 14, borderTop: `1.5px solid ${C.lightGray}` }}>
+                <input placeholder="New process (e.g. WELDING)" value={newLabor.name} onChange={e => setNewLabor(p => ({ ...p, name: e.target.value }))} style={{ padding: '8px 10px', border: `1.5px solid ${C.lightGray}`, borderRadius: 6, fontSize: 12, fontFamily: 'inherit' }} />
+                <input type="number" min="0" step="any" placeholder="₱/hr" value={newLabor.rate} onChange={e => setNewLabor(p => ({ ...p, rate: e.target.value }))} style={{ padding: '8px 10px', border: `1.5px solid ${C.lightGray}`, borderRadius: 6, fontSize: 12, fontFamily: 'inherit' }} />
+                <button onClick={addLaborType} style={{ padding: '0 14px', background: C.darkGreen, color: C.white, border: 'none', borderRadius: 6, fontSize: 11, fontWeight: 800, cursor: 'pointer' }}>Add</button>
+              </div>
+              {laborErr && <div style={{ color: C.red, fontSize: 11, marginTop: 10 }}>{laborErr}</div>}
+            </div>
+          </div>
+        </div>
+      )}
       {editAttn && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
           <div style={{ background: C.white, borderRadius: 14, width: '100%', maxWidth: 440, boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }}>
