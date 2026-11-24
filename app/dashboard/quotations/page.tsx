@@ -436,6 +436,19 @@ export default function QuotationsPage() {
     const { error } = await supabase.from('labor_types').update(patch).eq('id', t.id)
     if (error) { setLaborErr(error.message); return }
     setLaborTypes(p => p.map(x => x.id === t.id ? { ...x, ...patch } : x).sort((a, b) => String(a.name).localeCompare(String(b.name))))
+    // Carry the change into the quotation being edited: rows for this process that still
+    // carry the old default rate pick up the new one, so Hr/s × Rate = Amount stays correct.
+    const oldRate = Number(t.rate_per_hour), newName = patch.name ?? t.name
+    setItems(p => p.map(it => {
+      const labor = it.cost_breakdown?.labor
+      if (!labor || !labor.some((l: any) => l.process === t.name)) return it
+      return { ...it, cost_breakdown: { ...it.cost_breakdown, labor: labor.map((l: any) => {
+        if (l.process !== t.name) return l
+        const mult = l.unit === 'DAY' ? 8 : 1
+        const rate = patch.rate_per_hour !== undefined && Number(l.rate) === oldRate * mult ? patch.rate_per_hour * mult : l.rate
+        return { ...l, process: newName, rate }
+      }) } }
+    }))
   }
   const addLaborType = async () => {
     setLaborErr('')
