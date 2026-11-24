@@ -2040,7 +2040,7 @@ export default function QuotationsPage() {
                               ) : (
                                 <select value={l.process || ''} onChange={e => applyType(e.target.value, l.unit || 'HR')} style={{ padding: '6px 8px', border: `1.5px solid ${C.lightGray}`, borderRadius: 6, fontSize: 11, fontFamily: 'inherit' }}>
                                   <option value="">Select process…</option>
-                                  {laborTypes.map(t => <option key={t.id} value={t.name}>{t.name} — ₱{fmt(t.rate_per_hour)}/hr</option>)}
+                                  {laborTypes.map(t => <option key={t.id} value={t.name}>{t.name}</option>)}
                                   <option value="__custom__">Custom…</option>
                                 </select>
                               )}
