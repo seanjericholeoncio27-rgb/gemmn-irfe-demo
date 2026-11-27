@@ -438,6 +438,37 @@ export default function InventoryPage(){
     if(error){ window.alert('Could not save category: '+error.message); return }
     setCustomCats(next); setCatFilter(name)
   }
+  const saveCustomCats=async(next:string[])=>{
+    const {error}=await supabase.from('app_settings').upsert({key:'inventory_categories',value:JSON.stringify(next)},{onConflict:'key'})
+    if(error){ window.alert('Could not save categories: '+error.message); return false }
+    setCustomCats(next); return true
+  }
+  const renameCategory=async(oldName:string)=>{
+    const name=(window.prompt(`Rename "${oldName}" to:`,oldName)||'').trim().toUpperCase()
+    if(!name||name===oldName) return
+    if(name==='ALL'||name==='UNCATEGORIZED'){ window.alert('That name is reserved.'); return }
+    if(categories.includes(name)){ window.alert(`"${name}" already exists — use Move selected to merge materials into it.`); return }
+    const {error}=await supabase.from('inventory').update({category:name}).eq('category',oldName)
+    if(error){ window.alert('Rename failed: '+error.message); return }
+    if(!(await saveCustomCats([...customCats.filter(c=>c!==oldName),name]))) return
+    setItems(p=>p.map(i=>(i.category||'').trim()===oldName?{...i,category:name}:i)); setCatFilter(name)
+  }
+  const deleteCategory=async(name:string)=>{
+    const n=items.filter(i=>(i.category||'').trim()===name).length
+    if(!window.confirm(n>0?`Delete category "${name}"? Its ${n} material${n===1?'':'s'} will move to UNCATEGORIZED (nothing else is removed).`:`Delete category "${name}"?`)) return
+    if(n>0){ const {error}=await supabase.from('inventory').update({category:null}).eq('category',name); if(error){ window.alert('Delete failed: '+error.message); return } }
+    if(!(await saveCustomCats(customCats.filter(c=>c!==name)))) return
+    setItems(p=>p.map(i=>(i.category||'').trim()===name?{...i,category:null as any}:i)); setCatFilter('All')
+  }
+  const [selIds,setSelIds]=useState<string[]>([])
+  const [bulkCat,setBulkCat]=useState('')
+  const moveSelected=async()=>{
+    if(!bulkCat||selIds.length===0) return
+    const val=bulkCat==='__none__'?null:bulkCat
+    const {error}=await supabase.from('inventory').update({category:val}).in('id',selIds)
+    if(error){ window.alert('Move failed: '+error.message); return }
+    setItems(p=>p.map(i=>selIds.includes(i.id)?{...i,category:val as any}:i)); setSelIds([]); setBulkCat('')
+  }
   const categories = Array.from(new Set([...items.map(i=>(i.category&&i.category.trim())||'UNCATEGORIZED'),...customCats])).sort()
 
   // Releases don't carry category directly — look it up via material_id
@@ -519,6 +550,10 @@ export default function InventoryPage(){
             )
           })}
           {canEdit&&<button onClick={addCategory} style={{padding:'7px 14px',borderRadius:20,border:`1.5px dashed ${C.accent}`,background:C.white,color:C.accent,fontSize:10,fontWeight:800,cursor:'pointer',fontFamily:'inherit',letterSpacing:0.5,whiteSpace:'nowrap'}}>+ Category</button>}
+          {canEdit&&catFilter!=='All'&&catFilter!=='UNCATEGORIZED'&&<>
+            <button onClick={()=>renameCategory(catFilter)} style={{padding:'7px 12px',borderRadius:20,border:`1.5px solid ${C.lightGray}`,background:C.white,color:C.gray,fontSize:10,fontWeight:800,cursor:'pointer',fontFamily:'inherit',whiteSpace:'nowrap'}}>✎ Rename</button>
+            <button onClick={()=>deleteCategory(catFilter)} style={{padding:'7px 12px',borderRadius:20,border:`1.5px solid ${C.red}55`,background:C.white,color:C.red,fontSize:10,fontWeight:800,cursor:'pointer',fontFamily:'inherit',whiteSpace:'nowrap'}}>🗑 Delete</button>
+          </>}
         </div>
       )}
 
@@ -536,10 +571,23 @@ export default function InventoryPage(){
           </div>
         </div>
 
+        {canEdit&&selIds.length>0&&(
+          <div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap',background:`${C.accent}12`,border:`1.5px solid ${C.accent}55`,borderRadius:8,padding:'8px 12px',marginBottom:12}}>
+            <span style={{fontSize:11,fontWeight:800,color:C.darkGreen}}>{selIds.length} selected</span>
+            <select value={bulkCat} onChange={e=>setBulkCat(e.target.value)} style={{padding:'6px 10px',border:`1.5px solid ${C.lightGray}`,borderRadius:6,fontSize:11,fontFamily:'inherit'}}>
+              <option value="">Move to category…</option>
+              {categories.filter(c=>c!=='UNCATEGORIZED').map(c=><option key={c} value={c}>{c}</option>)}
+              <option value="__none__">UNCATEGORIZED (remove category)</option>
+            </select>
+            <button onClick={moveSelected} disabled={!bulkCat} style={{padding:'6px 14px',background:bulkCat?C.darkGreen:C.lightGray,color:C.white,border:'none',borderRadius:6,fontSize:11,fontWeight:800,cursor:bulkCat?'pointer':'default'}}>Move</button>
+            <button onClick={()=>setSelIds([])} style={{background:'none',border:'none',color:C.gray,fontSize:11,fontWeight:700,cursor:'pointer'}}>Clear</button>
+          </div>
+        )}
         {loading?<SkeletonPanel rows={10} cols={6} label="Loading inventory"/>
         :filtered.length===0?<div style={{textAlign:'center',padding:40,color:C.gray}}>No materials found.</div>
         :<table style={{width:'100%',borderCollapse:'collapse',fontSize:12}}>
           <thead><tr style={{background:`linear-gradient(90deg,${C.darkGreen},${C.midGreen})`}}>
+            {canEdit&&<th style={{padding:'9px 12px',width:28}}><input type="checkbox" aria-label="Select all shown" checked={filtered.length>0&&filtered.every(i=>selIds.includes(i.id))} onChange={e=>setSelIds(e.target.checked?filtered.map(i=>i.id):[])}/></th>}
             {['ID','Material Name','Category','Unit','Qty','Min Stock','Stock Level','Supplier','Status'].map(h=>(
               <th key={h} style={{padding:'9px 12px',textAlign:'left',color:C.white,fontWeight:800,fontSize:10,letterSpacing:1,textTransform:'uppercase',whiteSpace:'nowrap'}}>{h}</th>
             ))}
@@ -552,6 +600,7 @@ export default function InventoryPage(){
               style={{background:i%2===0?C.white:'#f9fbf9',borderBottom:`1px solid ${C.lightGray}`,cursor:canEdit?'pointer':'default'}}
               onMouseEnter={e=>{if(canEdit)e.currentTarget.style.background=`${C.accent}10`}}
               onMouseLeave={e=>{e.currentTarget.style.background=i%2===0?C.white:'#f9fbf9'}}>
+              {canEdit&&<td style={{padding:'9px 12px'}} onClick={e=>e.stopPropagation()}><input type="checkbox" aria-label={`Select ${item.name}`} checked={selIds.includes(item.id)} onChange={e=>setSelIds(p=>e.target.checked?[...p,item.id]:p.filter(x=>x!==item.id))}/></td>}
               <td style={{padding:'9px 12px',fontWeight:800,color:C.darkGreen,fontSize:10}}>{item.id}</td>
               <td style={{padding:'9px 12px',fontWeight:700}}>{item.name}</td>
               <td style={{padding:'9px 12px',color:C.gray,fontSize:11}}>{(item.category&&item.category.trim())||'—'}</td>
