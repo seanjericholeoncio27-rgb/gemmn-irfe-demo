@@ -424,7 +424,21 @@ export default function InventoryPage(){
   const low=items.filter(i=>i.quantity>=i.min_stock*0.6&&i.quantity<i.min_stock)
 
   const suppliers = Array.from(new Set(items.map((i: any) => i.supplier).filter(Boolean))) as string[]
-  const categories = Array.from(new Set(items.map(i=>(i.category&&i.category.trim())||'UNCATEGORIZED'))).sort()
+  // Categories added by hand (so they exist before any material is assigned) — kept in app_settings.
+  const [customCats,setCustomCats]=useState<string[]>([])
+  useEffect(()=>{ supabase.from('app_settings').select('value').eq('key','inventory_categories').maybeSingle().then(({data})=>{ try{ const v=JSON.parse(data?.value||'[]'); if(Array.isArray(v)) setCustomCats(v.map(String)) }catch{} }) },[supabase])
+  const addCategory=async()=>{
+    const raw=window.prompt('New category name (e.g. WELDING RODS):')
+    const name=(raw||'').trim().toUpperCase()
+    if(!name) return
+    if(name==='ALL'||name==='UNCATEGORIZED'){ window.alert('That name is reserved.'); return }
+    if(categories.includes(name)){ setCatFilter(name); return }
+    const next=[...customCats,name]
+    const {error}=await supabase.from('app_settings').upsert({key:'inventory_categories',value:JSON.stringify(next)},{onConflict:'key'})
+    if(error){ window.alert('Could not save category: '+error.message); return }
+    setCustomCats(next); setCatFilter(name)
+  }
+  const categories = Array.from(new Set([...items.map(i=>(i.category&&i.category.trim())||'UNCATEGORIZED'),...customCats])).sort()
 
   // Releases don't carry category directly — look it up via material_id
   // against the Registry, same UNCATEGORIZED fallback used there.
@@ -496,7 +510,7 @@ export default function InventoryPage(){
       )}
 
       {/* Category tabs */}
-      {categories.length>0 && (
+      {(categories.length>0||canEdit) && (
         <div style={{display:'flex',gap:6,marginBottom:14,flexWrap:'wrap'}}>
           {['All',...categories].map(c=>{
             const count = c==='All' ? items.length : items.filter(i=>((i.category&&i.category.trim())||'UNCATEGORIZED')===c).length
@@ -504,6 +518,7 @@ export default function InventoryPage(){
               <button key={c} onClick={()=>setCatFilter(c)} style={{padding:'7px 14px',borderRadius:20,border:`1.5px solid ${catFilter===c?C.accent:C.lightGray}`,background:catFilter===c?C.accent:C.white,color:catFilter===c?C.white:C.gray,fontSize:10,fontWeight:800,cursor:'pointer',fontFamily:'inherit',letterSpacing:0.5,whiteSpace:'nowrap'}}>{c} ({count})</button>
             )
           })}
+          {canEdit&&<button onClick={addCategory} style={{padding:'7px 14px',borderRadius:20,border:`1.5px dashed ${C.accent}`,background:C.white,color:C.accent,fontSize:10,fontWeight:800,cursor:'pointer',fontFamily:'inherit',letterSpacing:0.5,whiteSpace:'nowrap'}}>+ Category</button>}
         </div>
       )}
 
@@ -617,7 +632,7 @@ export default function InventoryPage(){
                 <Field label="Minimum Stock Level" type="number" value={form.min_stock} onChange={f('min_stock')}/>
               </div>
               <div style={{display:'flex',flexWrap:'wrap',gap:6,marginBottom:14,marginTop:-6}}>
-                {CATEGORY_SUGGESTIONS.map(c=>(
+                {Array.from(new Set([...CATEGORY_SUGGESTIONS,...customCats,...categories.filter(c=>c!=='UNCATEGORIZED')])).map(c=>(
                   <button key={c} type="button" onClick={()=>f('category')(c)} style={{padding:'3px 10px',borderRadius:20,border:`1px solid ${C.lightGray}`,background:form.category===c?`${C.accent}18`:C.white,color:form.category===c?C.accent:C.gray,fontSize:9,fontWeight:700,cursor:'pointer'}}>{c}</button>
                 ))}
               </div>
